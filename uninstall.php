@@ -31,6 +31,7 @@ delete_option('immoadmin_connection_verified');
 delete_option('immoadmin_last_sync');
 delete_option('immoadmin_last_sync_stats');
 delete_option('immoadmin_sync_log');
+delete_option('immoadmin_github_token');
 
 // Delete data directory and all files
 $data_dir = WP_CONTENT_DIR . '/immoadmin/';

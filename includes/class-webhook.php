@@ -32,12 +32,7 @@ class ImmoAdmin_Webhook {
             'permission_callback' => array(__CLASS__, 'verify_token'),
         ));
 
-        // Debug endpoint - shows stored token info (no auth required, for debugging)
-        register_rest_route('immoadmin/v1', '/debug', array(
-            'methods'             => 'GET',
-            'callback'            => array(__CLASS__, 'handle_debug'),
-            'permission_callback' => '__return_true',
-        ));
+        // Debug endpoint removed for security - token info should not be publicly accessible
     }
 
     /**
@@ -198,19 +193,4 @@ class ImmoAdmin_Webhook {
         ), 200);
     }
 
-    /**
-     * Handle debug request - shows stored token info for troubleshooting
-     */
-    public static function handle_debug($request) {
-        $stored_token = get_option('immoadmin_webhook_token', '');
-        $stored_token = trim($stored_token);
-
-        return new WP_REST_Response(array(
-            'stored_token_preview' => $stored_token ? substr($stored_token, 0, 8) . '...' : '(none)',
-            'stored_token_length' => strlen($stored_token),
-            'is_verified' => get_option('immoadmin_connection_verified', false),
-            'site_url' => get_site_url(),
-            'rest_url' => rest_url('immoadmin/v1/sync'),
-        ), 200);
-    }
 }

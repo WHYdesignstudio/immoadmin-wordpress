@@ -29,8 +29,11 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 // Set the branch that contains the stable release
 $immoadminUpdateChecker->setBranch('main');
 
-// Authentication for private repo
-$immoadminUpdateChecker->setAuthentication('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');
+// Authentication for private repo (from DB option or wp-config.php)
+$github_token = defined('IMMOADMIN_GITHUB_TOKEN') ? IMMOADMIN_GITHUB_TOKEN : get_option('immoadmin_github_token', '');
+if (!empty($github_token)) {
+    $immoadminUpdateChecker->setAuthentication($github_token);
+}
 
 // Plugin constants
 define('IMMOADMIN_VERSION', '1.1.1');
