@@ -144,6 +144,14 @@ class ImmoAdmin_Webhook {
         // Check if JSON data was sent directly in the request body
         $json_data = $request->get_body();
 
+        // Reject oversized payloads (max 20MB)
+        if (strlen($json_data) > 20 * 1024 * 1024) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => 'Payload zu groß (max 20MB)',
+            ), 413);
+        }
+
         if (!empty($json_data) && $json_data !== '{}') {
             // Validate it's valid JSON
             $data = json_decode($json_data, true);

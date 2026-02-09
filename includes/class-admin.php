@@ -20,7 +20,7 @@ class ImmoAdmin_Admin {
             $token_hash = hash('sha256', $new_token);
             update_option('immoadmin_webhook_token_hash', $token_hash);
             // Store masked version for display only
-            $masked = substr($new_token, 0, 4) . str_repeat('•', 24) . substr($new_token, -4);
+            $masked = str_repeat('•', 28) . substr($new_token, -4);
             update_option('immoadmin_webhook_token_masked', $masked);
             // Remove old plain text token if exists
             delete_option('immoadmin_webhook_token');
@@ -235,13 +235,16 @@ class ImmoAdmin_Admin {
                 <form method="post">
                     <?php wp_nonce_field('immoadmin_save_github_token'); ?>
                     <div class="immoadmin-token">
-                        <?php $gh_token = ImmoAdmin::decrypt_option('immoadmin_github_token'); ?>
+                        <?php $gh_token_exists = !empty(ImmoAdmin::decrypt_option('immoadmin_github_token')); ?>
                         <input
-                            type="text"
+                            type="password"
                             name="immoadmin_github_token"
-                            value="<?php echo esc_attr($gh_token); ?>"
-                            placeholder="ghp_..."
+                            value=""
+                            placeholder="<?php echo $gh_token_exists ? '••••••••••••••••' : 'ghp_...'; ?>"
                         />
+                        <?php if ($gh_token_exists): ?>
+                            <p style="color: #64748b; font-size: 11px; margin-top: 4px;">Neuen Token eingeben um zu überschreiben, oder leer lassen.</p>
+                        <?php endif; ?>
                         <button type="submit" name="immoadmin_save_github_token" class="immoadmin-btn immoadmin-btn-secondary">
                             Speichern
                         </button>

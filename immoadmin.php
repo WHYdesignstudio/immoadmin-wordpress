@@ -122,7 +122,7 @@ class ImmoAdmin {
             delete_option($option_name);
             return;
         }
-        $key = wp_salt('auth');
+        $key = hash('sha256', wp_salt('auth'), true); // Proper 32-byte key
         $iv = openssl_random_pseudo_bytes(16);
         $encrypted = openssl_encrypt($value, 'aes-256-cbc', $key, 0, $iv);
         update_option($option_name, base64_encode($iv . '::' . $encrypted));
@@ -146,7 +146,7 @@ class ImmoAdmin {
             return '';
         }
         $parts = explode('::', $decoded, 2);
-        $key = wp_salt('auth');
+        $key = hash('sha256', wp_salt('auth'), true); // Proper 32-byte key
         $decrypted = openssl_decrypt($parts[1], 'aes-256-cbc', $key, 0, $parts[0]);
         return $decrypted !== false ? $decrypted : '';
     }

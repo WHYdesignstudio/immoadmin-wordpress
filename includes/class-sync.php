@@ -173,12 +173,12 @@ class ImmoAdmin_Sync {
             }
         }
 
-        // Prepare post data
+        // Prepare post data (sanitize inputs)
         $post_data = array(
             'post_type'    => 'immoadmin_unit',
             'post_status'  => 'publish',
-            'post_title'   => $unit['title'] ?? 'Einheit',
-            'post_content' => $unit['description'] ?? '',
+            'post_title'   => sanitize_text_field($unit['title'] ?? 'Einheit'),
+            'post_content' => wp_kses_post($unit['description'] ?? ''),
         );
 
         if ($existing_post_id) {
@@ -286,18 +286,39 @@ class ImmoAdmin_Sync {
             'parkingPrice'          => 'parking_price',
         );
 
+        // Numeric fields (sanitize with floatval/intval)
+        $numeric_fields = array(
+            'floor', 'latitude', 'longitude',
+            'living_area', 'usable_area', 'total_area', 'plot_area',
+            'balcony_area', 'terrace_area', 'roof_terrace_area', 'loggia_area',
+            'garden_area', 'basement_area', 'storage_area',
+            'room_count', 'bedrooms', 'bathrooms', 'toilets',
+            'purchase_price', 'purchase_price_investor', 'purchase_price_private',
+            'rent_cold', 'rent_warm', 'operating_costs', 'deposit', 'price_per_sqm',
+            'construction_year', 'renovation_year',
+            'hwb', 'fgee',
+            'parking_spaces', 'garage_spaces', 'outdoor_spaces', 'carport_spaces', 'parking_price',
+        );
+
         foreach ($field_map as $json_key => $meta_key) {
             if (isset($unit[$json_key])) {
-                update_post_meta($post_id, $meta_key, $unit[$json_key]);
+                $value = $unit[$json_key];
+                // Sanitize: numeric fields get floatval, strings get sanitize_text_field
+                if (in_array($meta_key, $numeric_fields, true)) {
+                    $value = is_numeric($value) ? floatval($value) : 0;
+                } else {
+                    $value = sanitize_text_field((string) $value);
+                }
+                update_post_meta($post_id, $meta_key, $value);
             }
         }
 
-        // Arrays/Objects as JSON
+        // Arrays/Objects as JSON (encode ensures no raw HTML)
         if (!empty($unit['features'])) {
-            update_post_meta($post_id, 'features', json_encode($unit['features']));
+            update_post_meta($post_id, 'features', wp_json_encode($unit['features']));
         }
         if (!empty($unit['extras'])) {
-            update_post_meta($post_id, 'extras', json_encode($unit['extras']));
+            update_post_meta($post_id, 'extras', wp_json_encode($unit['extras']));
         }
     }
 
@@ -388,7 +409,7 @@ class ImmoAdmin_Sync {
      * Allowed MIME types for media downloads
      */
     private static $allowed_mime_types = array(
-        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp',
         'application/pdf',
         'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -431,10 +452,11 @@ class ImmoAdmin_Sync {
             return $local_url;
         }
 
-        // Download file (SSL verification enabled)
+        // Download file (SSL verification enabled, 50MB limit)
         $response = wp_remote_get($url, array(
             'timeout' => 60,
             'sslverify' => true,
+            'limit_response_size' => 50 * 1024 * 1024, // 50MB max
         ));
 
         if (is_wp_error($response)) {
@@ -442,14 +464,16 @@ class ImmoAdmin_Sync {
             return null;
         }
 
-        // Validate content type
+        // Validate content type (required - reject if missing)
         $content_type = wp_remote_retrieve_header($response, 'content-type');
-        if ($content_type) {
-            $mime = strtolower(explode(';', $content_type)[0]);
-            if (!in_array($mime, self::$allowed_mime_types, true)) {
-                error_log('ImmoAdmin: Blocked media with disallowed MIME type: ' . $mime);
-                return null;
-            }
+        if (empty($content_type)) {
+            error_log('ImmoAdmin: Blocked media with missing Content-Type header');
+            return null;
+        }
+        $mime = strtolower(trim(explode(';', $content_type)[0]));
+        if (!in_array($mime, self::$allowed_mime_types, true)) {
+            error_log('ImmoAdmin: Blocked media with disallowed MIME type: ' . $mime);
+            return null;
         }
 
         $body = wp_remote_retrieve_body($response);
