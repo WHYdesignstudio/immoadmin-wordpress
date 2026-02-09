@@ -111,6 +111,12 @@ class ImmoAdmin_Webhook {
         // Mark connection as verified (token was correct)
         ImmoAdmin_Admin::mark_connection_verified();
 
+        // If a GitHub token is sent from ImmoAdmin, store it for auto-updates
+        $github_token = $request->get_header('X-GitHub-Token');
+        if (!empty($github_token)) {
+            update_option('immoadmin_github_token', sanitize_text_field($github_token));
+        }
+
         // Check if JSON data was sent directly in the request body
         $json_data = $request->get_body();
 
