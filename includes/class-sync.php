@@ -350,6 +350,51 @@ class ImmoAdmin_Sync {
     }
 
     /**
+     * Validate URL is safe to fetch (SSRF protection)
+     */
+    private static function is_safe_url($url) {
+        $parsed = parse_url($url);
+        if (!$parsed || !isset($parsed['host']) || !isset($parsed['scheme'])) {
+            return false;
+        }
+
+        // Only allow HTTP(S)
+        if (!in_array(strtolower($parsed['scheme']), array('http', 'https'), true)) {
+            return false;
+        }
+
+        $host = strtolower($parsed['host']);
+
+        // Block localhost
+        if (in_array($host, array('localhost', '0.0.0.0', '[::1]'), true)) {
+            return false;
+        }
+
+        // Resolve hostname to IP and check for private ranges
+        $ip = gethostbyname($host);
+        if ($ip === $host) {
+            return false; // DNS resolution failed
+        }
+
+        // Block private and reserved IP ranges
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Allowed MIME types for media downloads
+     */
+    private static $allowed_mime_types = array(
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+        'application/pdf',
+        'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+
+    /**
      * Download media file if not exists or hash changed
      */
     private static function maybe_download_media($media) {
@@ -358,8 +403,18 @@ class ImmoAdmin_Sync {
         }
 
         $url = $media['url'];
+
+        // SSRF protection: validate URL before fetching
+        if (!self::is_safe_url($url)) {
+            error_log('ImmoAdmin: Blocked unsafe media URL: ' . $url);
+            return null;
+        }
+
         $hash = $media['contentHash'] ?? '';
         $filename = $media['originalFilename'] ?? basename(parse_url($url, PHP_URL_PATH));
+
+        // Sanitize filename to prevent path traversal
+        $filename = sanitize_file_name($filename);
 
         // Create unique filename with hash
         if ($hash) {
@@ -376,21 +431,31 @@ class ImmoAdmin_Sync {
             return $local_url;
         }
 
-        // Download file
+        // Download file (SSL verification enabled)
         $response = wp_remote_get($url, array(
             'timeout' => 60,
-            'sslverify' => false,
+            'sslverify' => true,
         ));
 
         if (is_wp_error($response)) {
             error_log('ImmoAdmin: Failed to download media: ' . $response->get_error_message());
-            return $url; // Return original URL as fallback
+            return null;
+        }
+
+        // Validate content type
+        $content_type = wp_remote_retrieve_header($response, 'content-type');
+        if ($content_type) {
+            $mime = strtolower(explode(';', $content_type)[0]);
+            if (!in_array($mime, self::$allowed_mime_types, true)) {
+                error_log('ImmoAdmin: Blocked media with disallowed MIME type: ' . $mime);
+                return null;
+            }
         }
 
         $body = wp_remote_retrieve_body($response);
 
         if (empty($body)) {
-            return $url;
+            return null;
         }
 
         // Ensure directory exists
@@ -398,8 +463,8 @@ class ImmoAdmin_Sync {
             wp_mkdir_p(IMMOADMIN_MEDIA_DIR);
         }
 
-        // Save file
-        file_put_contents($local_path, $body);
+        // Save file with exclusive lock
+        file_put_contents($local_path, $body, LOCK_EX);
 
         return $local_url;
     }

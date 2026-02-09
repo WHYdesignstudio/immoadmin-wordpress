@@ -36,15 +36,33 @@ class ImmoAdmin_Webhook {
     }
 
     /**
-     * Verify webhook request (token + signature)
+     * Verify webhook request (token + signature, both required)
      */
     public static function verify_token($request) {
+        // Rate limiting: max 20 requests per minute per IP
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $rate_key = 'immoadmin_rate_' . md5($ip);
+        $requests = (int) get_transient($rate_key);
+        if ($requests >= 20) {
+            return new WP_Error(
+                'rate_limited',
+                'Zu viele Anfragen',
+                array('status' => 429)
+            );
+        }
+        set_transient($rate_key, $requests + 1, 60);
+
+        // Token MUST come from header (never from query params - those leak in logs)
         $token = $request->get_header('X-Auth-Token');
         $signature = $request->get_header('X-Signature');
         $timestamp = $request->get_header('X-Timestamp');
 
         if (empty($token)) {
-            $token = $request->get_param('token');
+            return new WP_Error(
+                'unauthorized',
+                'Auth-Token fehlt',
+                array('status' => 401)
+            );
         }
 
         $stored_hash = get_option('immoadmin_webhook_token_hash');
@@ -74,31 +92,37 @@ class ImmoAdmin_Webhook {
             );
         }
 
-        // If signature is provided, verify it (enhanced security)
-        if (!empty($signature) && !empty($timestamp)) {
-            // Check timestamp (max 5 minutes old)
-            $request_time = intval($timestamp);
-            $current_time = time();
+        // Signature + Timestamp are REQUIRED (prevents replay attacks)
+        if (empty($signature) || empty($timestamp)) {
+            return new WP_Error(
+                'unauthorized',
+                'Signatur und Timestamp erforderlich',
+                array('status' => 401)
+            );
+        }
 
-            if (abs($current_time - $request_time) > 300) {
-                return new WP_Error(
-                    'unauthorized',
-                    'Request abgelaufen (Timestamp zu alt)',
-                    array('status' => 401)
-                );
-            }
+        // Check timestamp (max 5 minutes old)
+        $request_time = intval($timestamp);
+        $current_time = time();
 
-            // Verify HMAC signature
-            $body = $request->get_body();
-            $expected_signature = hash_hmac('sha256', $timestamp . $body, $token);
+        if (abs($current_time - $request_time) > 300) {
+            return new WP_Error(
+                'unauthorized',
+                'Request abgelaufen (Timestamp zu alt)',
+                array('status' => 401)
+            );
+        }
 
-            if (!hash_equals($expected_signature, $signature)) {
-                return new WP_Error(
-                    'unauthorized',
-                    'Ungültige Signatur',
-                    array('status' => 401)
-                );
-            }
+        // Verify HMAC signature
+        $body = $request->get_body();
+        $expected_signature = hash_hmac('sha256', $timestamp . $body, $token);
+
+        if (!hash_equals($expected_signature, $signature)) {
+            return new WP_Error(
+                'unauthorized',
+                'Ungültige Signatur',
+                array('status' => 401)
+            );
         }
 
         return true;
@@ -111,10 +135,10 @@ class ImmoAdmin_Webhook {
         // Mark connection as verified (token was correct)
         ImmoAdmin_Admin::mark_connection_verified();
 
-        // If a GitHub token is sent from ImmoAdmin, store it for auto-updates
+        // If a GitHub token is sent from ImmoAdmin, store it encrypted for auto-updates
         $github_token = $request->get_header('X-GitHub-Token');
         if (!empty($github_token)) {
-            update_option('immoadmin_github_token', sanitize_text_field($github_token));
+            ImmoAdmin::encrypt_option('immoadmin_github_token', sanitize_text_field($github_token));
         }
 
         // Check if JSON data was sent directly in the request body
@@ -138,7 +162,7 @@ class ImmoAdmin_Webhook {
                 }
 
                 $json_file = $data_dir . $filename;
-                $saved = file_put_contents($json_file, $json_data);
+                $saved = file_put_contents($json_file, $json_data, LOCK_EX);
 
                 if ($saved === false) {
                     return new WP_REST_Response(array(

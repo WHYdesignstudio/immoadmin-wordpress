@@ -32,7 +32,7 @@ class ImmoAdmin_Admin {
         if (isset($_POST['immoadmin_save_github_token']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_save_github_token')) {
             $gh_token = trim(sanitize_text_field($_POST['immoadmin_github_token']));
             if (!empty($gh_token)) {
-                update_option('immoadmin_github_token', $gh_token);
+                ImmoAdmin::encrypt_option('immoadmin_github_token', $gh_token);
                 $token_message = 'GitHub Token gespeichert! Auto-Updates aktiviert.';
                 $token_success = true;
             } else {
@@ -235,7 +235,7 @@ class ImmoAdmin_Admin {
                 <form method="post">
                     <?php wp_nonce_field('immoadmin_save_github_token'); ?>
                     <div class="immoadmin-token">
-                        <?php $gh_token = get_option('immoadmin_github_token', ''); ?>
+                        <?php $gh_token = ImmoAdmin::decrypt_option('immoadmin_github_token'); ?>
                         <input
                             type="text"
                             name="immoadmin_github_token"
