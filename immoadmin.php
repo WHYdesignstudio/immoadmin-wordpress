@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 1.2.0
+ * Version: 1.3.0
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// Auto-update from GitHub
+// Auto-update from GitHub (public repo, no authentication needed)
 require_once plugin_dir_path(__FILE__) . 'vendor/plugin-update-checker/plugin-update-checker.php';
 use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
 
@@ -29,14 +29,8 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 // Set the branch that contains the stable release
 $immoadminUpdateChecker->setBranch('main');
 
-// Authentication for private repo (from DB option or wp-config.php)
-$github_token = defined('IMMOADMIN_GITHUB_TOKEN') ? IMMOADMIN_GITHUB_TOKEN : ImmoAdmin::decrypt_option('immoadmin_github_token');
-if (!empty($github_token)) {
-    $immoadminUpdateChecker->setAuthentication($github_token);
-}
-
 // Plugin constants
-define('IMMOADMIN_VERSION', '1.2.0');
+define('IMMOADMIN_VERSION', '1.3.0');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -112,43 +106,6 @@ class ImmoAdmin {
         // Register post type and flush rewrite rules
         ImmoAdmin_Post_Type::register();
         flush_rewrite_rules();
-    }
-
-    /**
-     * Encrypt a value and store it as a WP option
-     */
-    public static function encrypt_option($option_name, $value) {
-        if (empty($value)) {
-            delete_option($option_name);
-            return;
-        }
-        $key = hash('sha256', wp_salt('auth'), true); // Proper 32-byte key
-        $iv = openssl_random_pseudo_bytes(16);
-        $encrypted = openssl_encrypt($value, 'aes-256-cbc', $key, 0, $iv);
-        update_option($option_name, base64_encode($iv . '::' . $encrypted));
-    }
-
-    /**
-     * Decrypt a WP option value
-     */
-    public static function decrypt_option($option_name) {
-        $stored = get_option($option_name, '');
-        if (empty($stored)) {
-            return '';
-        }
-        // Migration: if value doesn't look encrypted (starts with ghp_), encrypt it
-        if (strpos($stored, 'ghp_') === 0 || strpos($stored, 'github_pat_') === 0) {
-            self::encrypt_option($option_name, $stored);
-            return $stored;
-        }
-        $decoded = base64_decode($stored);
-        if ($decoded === false || strpos($decoded, '::') === false) {
-            return '';
-        }
-        $parts = explode('::', $decoded, 2);
-        $key = hash('sha256', wp_salt('auth'), true); // Proper 32-byte key
-        $decrypted = openssl_decrypt($parts[1], 'aes-256-cbc', $key, 0, $parts[0]);
-        return $decrypted !== false ? $decrypted : '';
     }
 
     /**

@@ -28,20 +28,6 @@ class ImmoAdmin_Admin {
             $token_success = !empty($new_token);
         }
 
-        // Handle GitHub token save
-        if (isset($_POST['immoadmin_save_github_token']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_save_github_token')) {
-            $gh_token = trim(sanitize_text_field($_POST['immoadmin_github_token']));
-            if (!empty($gh_token)) {
-                ImmoAdmin::encrypt_option('immoadmin_github_token', $gh_token);
-                $token_message = 'GitHub Token gespeichert! Auto-Updates aktiviert.';
-                $token_success = true;
-            } else {
-                delete_option('immoadmin_github_token');
-                $token_message = 'GitHub Token entfernt.';
-                $token_success = false;
-            }
-        }
-
         // Handle disconnect
         if (isset($_POST['immoadmin_disconnect']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_disconnect')) {
             delete_option('immoadmin_webhook_token');
@@ -227,35 +213,6 @@ class ImmoAdmin_Admin {
                 <h4 style="margin-top: 24px;">Webhook URL</h4>
                 <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">Diese URL wird automatisch von ImmoAdmin aufgerufen.</p>
                 <code class="immoadmin-code"><?php echo esc_html(rest_url('immoadmin/v1/sync')); ?></code>
-
-                <h4 style="margin-top: 24px;">Auto-Updates</h4>
-                <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">
-                    GitHub Token für automatische Plugin-Updates vom privaten Repository.
-                </p>
-                <form method="post">
-                    <?php wp_nonce_field('immoadmin_save_github_token'); ?>
-                    <div class="immoadmin-token">
-                        <?php $gh_token_exists = !empty(ImmoAdmin::decrypt_option('immoadmin_github_token')); ?>
-                        <input
-                            type="password"
-                            name="immoadmin_github_token"
-                            value=""
-                            placeholder="<?php echo $gh_token_exists ? '••••••••••••••••' : 'ghp_...'; ?>"
-                        />
-                        <?php if ($gh_token_exists): ?>
-                            <p style="color: #64748b; font-size: 11px; margin-top: 4px;">Neuen Token eingeben um zu überschreiben, oder leer lassen.</p>
-                        <?php endif; ?>
-                        <button type="submit" name="immoadmin_save_github_token" class="immoadmin-btn immoadmin-btn-secondary">
-                            Speichern
-                        </button>
-                    </div>
-                    <?php if (!empty($gh_token)): ?>
-                        <p style="color: #16a34a; font-size: 12px; margin-top: 8px;">
-                            <span class="dashicons dashicons-yes-alt" style="font-size: 14px; width: 14px; height: 14px;"></span>
-                            Token konfiguriert – Auto-Updates aktiv
-                        </p>
-                    <?php endif; ?>
-                </form>
 
                 <h4 style="margin-top: 24px;">Verbindung trennen</h4>
                 <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">Token entfernen und Plugin zurücksetzen.</p>
