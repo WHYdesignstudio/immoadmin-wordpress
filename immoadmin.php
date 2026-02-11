@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.0.4
+ * Version: 2.0.5
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.0.4');
+define('IMMOADMIN_VERSION', '2.0.5');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -128,14 +128,14 @@ class ImmoAdmin {
     }
 
     /**
-     * Protect a directory from direct web access
+     * Protect a directory - block directory listing but allow file access
+     * JSON files need to be readable (MapSVG etc.), media is in subdirectory with its own rules
      */
     private static function protect_directory($dir) {
-        // .htaccess for Apache
+        // .htaccess: disable directory listing, allow file access
         $htaccess = $dir . '.htaccess';
-        if (!file_exists($htaccess)) {
-            file_put_contents($htaccess, "Deny from all\n", LOCK_EX);
-        }
+        $rules = "Options -Indexes\n";
+        file_put_contents($htaccess, $rules, LOCK_EX);
 
         // index.php as fallback (nginx, misconfigured Apache)
         $index = $dir . 'index.php';
@@ -145,13 +145,13 @@ class ImmoAdmin {
     }
 
     /**
-     * Ensure a directory is publicly accessible
-     * Writes "Allow from all" to override parent directory's "Deny from all"
+     * Ensure a directory is publicly accessible (clean up old restrictions)
      */
     private static function unprotect_directory($dir) {
         $htaccess = $dir . '.htaccess';
-        // Always write Allow - overrides parent's "Deny from all"
-        file_put_contents($htaccess, "Allow from all\nSatisfy any\n", LOCK_EX);
+        if (file_exists($htaccess)) {
+            @unlink($htaccess);
+        }
     }
     
     /**
@@ -163,8 +163,9 @@ class ImmoAdmin {
             return;
         }
 
-        // v2.0.4: Write "Allow from all" to media dir (overrides parent "Deny from all")
-        if (version_compare($stored_version, '2.0.4', '<')) {
+        // v2.0.5: Fix .htaccess - parent dir allows file access, media dir has no restrictions
+        if (version_compare($stored_version, '2.0.5', '<')) {
+            self::protect_directory(IMMOADMIN_DATA_DIR);
             self::unprotect_directory(IMMOADMIN_MEDIA_DIR);
         }
 
