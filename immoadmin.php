@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.0.1
+ * Version: 2.0.2
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.0.1');
+define('IMMOADMIN_VERSION', '2.0.2');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -112,9 +112,10 @@ class ImmoAdmin {
             wp_mkdir_p(IMMOADMIN_MEDIA_DIR);
         }
 
-        // Protect data directories from direct web access
+        // Protect data directory (JSON files) from direct web access
+        // Media directory is NOT protected - images/PDFs must be publicly accessible
         self::protect_directory(IMMOADMIN_DATA_DIR);
-        self::protect_directory(IMMOADMIN_MEDIA_DIR);
+        self::unprotect_directory(IMMOADMIN_MEDIA_DIR);
 
         // Token is NOT auto-generated - user must enter it from ImmoAdmin
 
@@ -137,6 +138,16 @@ class ImmoAdmin {
         $index = $dir . 'index.php';
         if (!file_exists($index)) {
             file_put_contents($index, "<?php\n// Silence is golden.\n", LOCK_EX);
+        }
+    }
+
+    /**
+     * Ensure a directory is publicly accessible (remove old .htaccess protection)
+     */
+    private static function unprotect_directory($dir) {
+        $htaccess = $dir . '.htaccess';
+        if (file_exists($htaccess)) {
+            @unlink($htaccess);
         }
     }
     
