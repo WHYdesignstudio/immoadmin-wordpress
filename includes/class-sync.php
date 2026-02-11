@@ -1,6 +1,9 @@
 <?php
 /**
  * Sync Logic - Reads JSON and updates WordPress posts
+ *
+ * All business logic (field mapping, computed fields, media numbering)
+ * lives in the ImmoAdmin backend. This plugin just writes what it receives.
  */
 
 if (!defined('ABSPATH')) {
@@ -55,14 +58,6 @@ class ImmoAdmin_Sync {
             'errors' => array(),
         );
 
-        // Build a map of building IDs to names
-        $buildings = array();
-        if (!empty($data['buildings'])) {
-            foreach ($data['buildings'] as $building) {
-                $buildings[$building['id']] = $building['name'];
-            }
-        }
-
         // Get existing posts mapped by ImmoAdmin ID
         $existing_posts = self::get_existing_posts();
 
@@ -71,7 +66,7 @@ class ImmoAdmin_Sync {
 
         if (!empty($data['units'])) {
             foreach ($data['units'] as $unit) {
-                $result = self::sync_unit($unit, $buildings, $existing_posts);
+                $result = self::sync_unit($unit, $existing_posts, $data['meta']['baseUrl'] ?? '');
                 $processed_ids[] = $unit['id'];
 
                 if ($result['status'] === 'created') {
@@ -84,7 +79,6 @@ class ImmoAdmin_Sync {
                     $stats['errors'][] = $result['error'];
                 }
 
-                // Track media downloads
                 if (!empty($result['media_downloaded'])) {
                     $stats['media_downloaded'] += $result['media_downloaded'];
                 }
@@ -123,13 +117,7 @@ class ImmoAdmin_Sync {
         }
 
         $files = glob(IMMOADMIN_DATA_DIR . '*.json');
-
-        if (empty($files)) {
-            return null;
-        }
-
-        // Return first JSON file found (usually there's only one per site)
-        return $files[0];
+        return !empty($files) ? $files[0] : null;
     }
 
     /**
@@ -159,17 +147,16 @@ class ImmoAdmin_Sync {
     }
 
     /**
-     * Sync a single unit
+     * Sync a single unit - just write what the backend sends
      */
-    private static function sync_unit($unit, $buildings, $existing_posts) {
+    private static function sync_unit($unit, $existing_posts, $base_url) {
         $immoadmin_id = $unit['id'];
         $existing_post_id = isset($existing_posts[$immoadmin_id]) ? $existing_posts[$immoadmin_id] : null;
 
-        // Generate content hash for change detection
-        // Version prefix invalidates old hashes when sync logic changes
-        $content_hash = md5('v2:' . json_encode($unit));
+        // Content hash for change detection
+        $content_hash = md5('v3:' . json_encode($unit));
 
-        // Check if we need to update
+        // Skip if nothing changed
         if ($existing_post_id) {
             $stored_hash = get_post_meta($existing_post_id, '_content_hash', true);
             if ($stored_hash === $content_hash) {
@@ -177,7 +164,7 @@ class ImmoAdmin_Sync {
             }
         }
 
-        // Prepare post data (sanitize inputs)
+        // Create or update post
         $post_data = array(
             'post_type'    => 'immoadmin_wohnung',
             'post_status'  => 'publish',
@@ -201,15 +188,42 @@ class ImmoAdmin_Sync {
             );
         }
 
-        // Update meta fields
-        self::update_meta_fields($post_id, $unit, $buildings);
-
-        // Store content hash
+        // Store internal meta
+        update_post_meta($post_id, '_immoadmin_id', $unit['id']);
         update_post_meta($post_id, '_content_hash', $content_hash);
         update_post_meta($post_id, '_last_synced', current_time('mysql'));
 
-        // Download media
-        $media_downloaded = self::sync_media($post_id, $unit);
+        // Clean up old numbered media fields before writing new ones
+        self::cleanup_dynamic_meta($post_id);
+
+        // Write ALL metaFields from backend directly - no mapping, no logic
+        $media_downloaded = 0;
+        $trusted_host = self::parse_trusted_host($base_url);
+
+        if (!empty($unit['metaFields'])) {
+            foreach ($unit['metaFields'] as $key => $value) {
+                // Media fields (image_N, floor_plan_N, document_N_url): download locally
+                if ($value && is_string($value) && self::is_media_url_field($key)) {
+                    $local_url = self::download_media($value, $trusted_host);
+                    if ($local_url) {
+                        update_post_meta($post_id, $key, $local_url);
+                        $media_downloaded++;
+                    } else {
+                        // Fallback: store remote URL if download fails
+                        update_post_meta($post_id, $key, esc_url_raw($value));
+                    }
+                } else {
+                    // All other fields: write directly (sanitize strings)
+                    if (is_numeric($value)) {
+                        update_post_meta($post_id, $key, $value);
+                    } elseif (is_string($value)) {
+                        update_post_meta($post_id, $key, sanitize_text_field($value));
+                    } elseif (is_null($value)) {
+                        delete_post_meta($post_id, $key);
+                    }
+                }
+            }
+        }
 
         return array(
             'status' => $status,
@@ -219,203 +233,18 @@ class ImmoAdmin_Sync {
     }
 
     /**
-     * Update all meta fields for a post
+     * Check if a meta key is a media URL field that should be downloaded
      */
-    private static function update_meta_fields($post_id, $unit, $buildings) {
-        // Store ImmoAdmin ID
-        update_post_meta($post_id, '_immoadmin_id', $unit['id']);
-
-        // Building info
-        if (!empty($unit['buildingId'])) {
-            update_post_meta($post_id, 'building_id', $unit['buildingId']);
-            $building_name = isset($buildings[$unit['buildingId']]) ? $buildings[$unit['buildingId']] : '';
-            update_post_meta($post_id, 'building_name', $building_name);
-        }
-
-        // Field mappings (JSON key => meta key)
-        $field_map = array(
-            'externalId'            => 'external_id',
-            'status'                => 'status',
-            'statusLabel'           => 'status_label',
-            'objectType'            => 'object_type',
-            'objectTypeLabel'       => 'object_type_label',
-            'marketingType'         => 'marketing_type',
-            'marketingTypeLabel'    => 'marketing_type_label',
-            'street'                => 'street',
-            'houseNumber'           => 'house_number',
-            'staircase'             => 'staircase',
-            'doorNumber'            => 'door_number',
-            'floor'                 => 'floor',
-            'floorLabel'            => 'floor_label',
-            'postalCode'            => 'postal_code',
-            'city'                  => 'city',
-            'country'               => 'country',
-            'orientation'           => 'orientation',
-            'latitude'              => 'latitude',
-            'longitude'             => 'longitude',
-            'livingArea'            => 'living_area',
-            'usableArea'            => 'usable_area',
-            'totalArea'             => 'total_area',
-            'plotArea'              => 'plot_area',
-            'balconyArea'           => 'balcony_area',
-            'terraceArea'           => 'terrace_area',
-            'roofTerraceArea'       => 'roof_terrace_area',
-            'loggiaArea'            => 'loggia_area',
-            'gardenArea'            => 'garden_area',
-            'basementArea'          => 'basement_area',
-            'storageArea'           => 'storage_area',
-            'roomCount'             => 'room_count',
-            'bedrooms'              => 'bedrooms',
-            'bathrooms'             => 'bathrooms',
-            'toilets'               => 'toilets',
-            'purchasePrice'         => 'purchase_price',
-            'purchasePriceInvestor' => 'purchase_price_investor',
-            'purchasePricePrivate'  => 'purchase_price_private',
-            'rentCold'              => 'rent_cold',
-            'rentWarm'              => 'rent_warm',
-            'operatingCosts'        => 'operating_costs',
-            'deposit'               => 'deposit',
-            'commission'            => 'commission',
-            'pricePerSqm'           => 'price_per_sqm',
-            'constructionYear'      => 'construction_year',
-            'renovationYear'        => 'renovation_year',
-            'condition'             => 'condition',
-            'equipment'             => 'equipment',
-            'heatingType'           => 'heating_type',
-            'energySource'          => 'energy_source',
-            'hwb'                   => 'hwb',
-            'hwbClass'              => 'hwb_class',
-            'fgee'                  => 'fgee',
-            'fgeeClass'             => 'fgee_class',
-            'parkingSpaces'         => 'parking_spaces',
-            'garageSpaces'          => 'garage_spaces',
-            'outdoorSpaces'         => 'outdoor_spaces',
-            'carportSpaces'         => 'carport_spaces',
-            'parkingPrice'          => 'parking_price',
-        );
-
-        // Numeric fields (sanitize with floatval/intval)
-        $numeric_fields = array(
-            'floor', 'latitude', 'longitude',
-            'living_area', 'usable_area', 'total_area', 'plot_area',
-            'balcony_area', 'terrace_area', 'roof_terrace_area', 'loggia_area',
-            'garden_area', 'basement_area', 'storage_area',
-            'room_count', 'bedrooms', 'bathrooms', 'toilets',
-            'purchase_price', 'purchase_price_investor', 'purchase_price_private',
-            'rent_cold', 'rent_warm', 'operating_costs', 'deposit', 'price_per_sqm',
-            'construction_year', 'renovation_year',
-            'hwb', 'fgee',
-            'parking_spaces', 'garage_spaces', 'outdoor_spaces', 'carport_spaces', 'parking_price',
-        );
-
-        foreach ($field_map as $json_key => $meta_key) {
-            if (isset($unit[$json_key])) {
-                $value = $unit[$json_key];
-                // Sanitize: numeric fields get floatval, strings get sanitize_text_field
-                if (in_array($meta_key, $numeric_fields, true)) {
-                    $value = is_numeric($value) ? floatval($value) : 0;
-                } else {
-                    $value = sanitize_text_field((string) $value);
-                }
-                update_post_meta($post_id, $meta_key, $value);
-            }
-        }
-
-        // Computed fields
-        $outdoor_sum = floatval($unit['balconyArea'] ?? 0)
-            + floatval($unit['terraceArea'] ?? 0)
-            + floatval($unit['roofTerraceArea'] ?? 0)
-            + floatval($unit['loggiaArea'] ?? 0)
-            + floatval($unit['gardenArea'] ?? 0);
-        update_post_meta($post_id, 'outdoor_area_total', $outdoor_sum);
-
-        // Arrays/Objects as JSON (encode ensures no raw HTML)
-        if (!empty($unit['features'])) {
-            update_post_meta($post_id, 'features', wp_json_encode($unit['features']));
-        }
-        if (!empty($unit['extras'])) {
-            update_post_meta($post_id, 'extras', wp_json_encode($unit['extras']));
-        }
+    private static function is_media_url_field($key) {
+        return (bool) preg_match('/^(image_\d+|floor_plan_\d+|document_\d+_url)$/', $key);
     }
 
     /**
-     * Sync media files (download if needed)
-     * Stores individual meta fields for Bricks Builder compatibility:
-     *   image_1, image_2, ... + images_count
-     *   floor_plan_1, floor_plan_2, ... + floor_plans_count
-     *   document_1_url, document_1_title, ... + documents_count
+     * Clean up dynamic/numbered meta fields before re-sync
      */
-    private static function sync_media($post_id, $unit) {
-        $downloaded = 0;
-
-        // Clean up old numbered media meta fields first
-        self::cleanup_numbered_media_meta($post_id);
-
-        // Always ensure count fields exist (even if empty)
-        if (empty($unit['media'])) {
-            update_post_meta($post_id, 'images_count', 0);
-            update_post_meta($post_id, 'floor_plans_count', 0);
-            update_post_meta($post_id, 'documents_count', 0);
-            return $downloaded;
-        }
-
-        // Process images
-        $image_count = 0;
-        if (!empty($unit['media']['images'])) {
-            foreach ($unit['media']['images'] as $media) {
-                $local_path = self::maybe_download_media($media);
-                if ($local_path) {
-                    $image_count++;
-                    update_post_meta($post_id, 'image_' . $image_count, $local_path);
-                    if (strpos($local_path, '/immoadmin/media/') !== false) {
-                        $downloaded++;
-                    }
-                }
-            }
-        }
-        update_post_meta($post_id, 'images_count', $image_count);
-
-        // Process floor plans
-        $floor_plan_count = 0;
-        if (!empty($unit['media']['floorPlans'])) {
-            foreach ($unit['media']['floorPlans'] as $media) {
-                $local_path = self::maybe_download_media($media);
-                if ($local_path) {
-                    $floor_plan_count++;
-                    update_post_meta($post_id, 'floor_plan_' . $floor_plan_count, $local_path);
-                    if (strpos($local_path, '/immoadmin/media/') !== false) {
-                        $downloaded++;
-                    }
-                }
-            }
-        }
-        update_post_meta($post_id, 'floor_plans_count', $floor_plan_count);
-
-        // Process documents (URL + title)
-        $document_count = 0;
-        if (!empty($unit['media']['documents'])) {
-            foreach ($unit['media']['documents'] as $media) {
-                $local_path = self::maybe_download_media($media);
-                if ($local_path) {
-                    $document_count++;
-                    update_post_meta($post_id, 'document_' . $document_count . '_url', $local_path);
-                    update_post_meta($post_id, 'document_' . $document_count . '_title',
-                        sanitize_text_field($media['title'] ?? $media['originalFilename'] ?? ''));
-                }
-            }
-        }
-        update_post_meta($post_id, 'documents_count', $document_count);
-
-        return $downloaded;
-    }
-
-    /**
-     * Remove old numbered media meta fields before re-syncing
-     */
-    private static function cleanup_numbered_media_meta($post_id) {
+    private static function cleanup_dynamic_meta($post_id) {
         global $wpdb;
 
-        // Delete all image_N, floor_plan_N, document_N_url, document_N_title fields
         $wpdb->query($wpdb->prepare(
             "DELETE FROM {$wpdb->postmeta}
              WHERE post_id = %d
@@ -426,77 +255,15 @@ class ImmoAdmin_Sync {
              )",
             $post_id
         ));
-
-        // Also remove legacy JSON fields
-        delete_post_meta($post_id, 'images');
-        delete_post_meta($post_id, 'floor_plans');
-        delete_post_meta($post_id, 'documents');
     }
 
     /**
-     * Get the trusted ImmoAdmin base URL host from the stored sync JSON
+     * Parse trusted host from base URL
      */
-    private static function get_trusted_host() {
-        static $trusted_host = null;
-        if ($trusted_host !== null) {
-            return $trusted_host;
-        }
-
-        $json_file = self::find_json_file();
-        if ($json_file && file_exists($json_file)) {
-            $data = json_decode(file_get_contents($json_file), true);
-            if (!empty($data['meta']['baseUrl'])) {
-                $parsed = parse_url($data['meta']['baseUrl']);
-                if (!empty($parsed['host'])) {
-                    $trusted_host = strtolower($parsed['host']);
-                    return $trusted_host;
-                }
-            }
-        }
-
-        $trusted_host = '';
-        return $trusted_host;
-    }
-
-    /**
-     * Validate URL is safe to fetch (SSRF protection)
-     */
-    private static function is_safe_url($url) {
-        $parsed = parse_url($url);
-        if (!$parsed || !isset($parsed['host']) || !isset($parsed['scheme'])) {
-            return false;
-        }
-
-        // Only allow HTTP(S)
-        if (!in_array(strtolower($parsed['scheme']), array('http', 'https'), true)) {
-            return false;
-        }
-
-        $host = strtolower($parsed['host']);
-
-        // Trust the ImmoAdmin server (authenticated sync source)
-        $trusted = self::get_trusted_host();
-        if ($trusted && $host === $trusted) {
-            return true;
-        }
-
-        // Block localhost
-        if (in_array($host, array('localhost', '0.0.0.0', '[::1]'), true)) {
-            return false;
-        }
-
-        // Resolve hostname to IP and check for private ranges
-        $ip = gethostbyname($host);
-        if ($ip === $host) {
-            return false; // DNS resolution failed
-        }
-
-        // Block private and reserved IP ranges
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-            return false;
-        }
-
-        return true;
+    private static function parse_trusted_host($base_url) {
+        if (empty($base_url)) return '';
+        $parsed = parse_url($base_url);
+        return !empty($parsed['host']) ? strtolower($parsed['host']) : '';
     }
 
     /**
@@ -510,81 +277,99 @@ class ImmoAdmin_Sync {
     );
 
     /**
-     * Download media file if not exists or hash changed
+     * Download a media file to local storage
+     * Returns local URL or null on failure
      */
-    private static function maybe_download_media($media) {
-        if (empty($media['url'])) {
+    private static function download_media($url, $trusted_host = '') {
+        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
             return null;
         }
 
-        $url = $media['url'];
-
-        // SSRF protection: validate URL before fetching
-        if (!self::is_safe_url($url)) {
+        // SSRF protection
+        if (!self::is_safe_url($url, $trusted_host)) {
             error_log('ImmoAdmin: Blocked unsafe media URL: ' . $url);
             return null;
         }
 
-        $hash = $media['contentHash'] ?? '';
-        $filename = $media['originalFilename'] ?? basename(parse_url($url, PHP_URL_PATH));
-
-        // Sanitize filename to prevent path traversal
-        $filename = sanitize_file_name($filename);
-
-        // Create unique filename with hash
-        if ($hash) {
-            $ext = pathinfo($filename, PATHINFO_EXTENSION);
-            $name = pathinfo($filename, PATHINFO_FILENAME);
-            $filename = $name . '-' . substr($hash, 0, 8) . '.' . $ext;
-        }
+        // Generate local filename from URL
+        $filename = sanitize_file_name(basename(parse_url($url, PHP_URL_PATH)));
+        if (empty($filename)) return null;
 
         $local_path = IMMOADMIN_MEDIA_DIR . $filename;
         $local_url = content_url('/immoadmin/media/' . $filename);
 
-        // Check if file exists with same hash
+        // Skip if already downloaded
         if (file_exists($local_path)) {
             return $local_url;
         }
 
-        // Download file (SSL verification enabled, 50MB limit)
+        // Download
         $response = wp_remote_get($url, array(
             'timeout' => 60,
             'sslverify' => true,
-            'limit_response_size' => 50 * 1024 * 1024, // 50MB max
+            'limit_response_size' => 50 * 1024 * 1024,
         ));
 
         if (is_wp_error($response)) {
-            error_log('ImmoAdmin: Failed to download media: ' . $response->get_error_message());
+            error_log('ImmoAdmin: Failed to download media: ' . $response->get_error_message() . ' URL: ' . $url);
             return null;
         }
 
-        // Validate content type (required - reject if missing)
+        // Validate content type
         $content_type = wp_remote_retrieve_header($response, 'content-type');
-        if (empty($content_type)) {
-            error_log('ImmoAdmin: Blocked media with missing Content-Type header');
-            return null;
-        }
-        $mime = strtolower(trim(explode(';', $content_type)[0]));
-        if (!in_array($mime, self::$allowed_mime_types, true)) {
-            error_log('ImmoAdmin: Blocked media with disallowed MIME type: ' . $mime);
-            return null;
+        if (!empty($content_type)) {
+            $mime = strtolower(trim(explode(';', $content_type)[0]));
+            if (!in_array($mime, self::$allowed_mime_types, true)) {
+                error_log('ImmoAdmin: Blocked media with disallowed MIME type: ' . $mime);
+                return null;
+            }
         }
 
         $body = wp_remote_retrieve_body($response);
-
-        if (empty($body)) {
-            return null;
-        }
+        if (empty($body)) return null;
 
         // Ensure directory exists
         if (!file_exists(IMMOADMIN_MEDIA_DIR)) {
             wp_mkdir_p(IMMOADMIN_MEDIA_DIR);
         }
 
-        // Save file with exclusive lock
         file_put_contents($local_path, $body, LOCK_EX);
-
         return $local_url;
+    }
+
+    /**
+     * Validate URL is safe to fetch (SSRF protection)
+     */
+    private static function is_safe_url($url, $trusted_host = '') {
+        $parsed = parse_url($url);
+        if (!$parsed || !isset($parsed['host']) || !isset($parsed['scheme'])) {
+            return false;
+        }
+
+        if (!in_array(strtolower($parsed['scheme']), array('http', 'https'), true)) {
+            return false;
+        }
+
+        $host = strtolower($parsed['host']);
+
+        // Trust the ImmoAdmin server
+        if ($trusted_host && $host === $trusted_host) {
+            return true;
+        }
+
+        // Block localhost
+        if (in_array($host, array('localhost', '0.0.0.0', '[::1]'), true)) {
+            return false;
+        }
+
+        // Block private IP ranges
+        $ip = gethostbyname($host);
+        if ($ip === $host) return false;
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -599,9 +384,7 @@ class ImmoAdmin_Sync {
             'duration' => $duration,
         ));
 
-        // Keep only last 50 entries
         $log = array_slice($log, 0, 50);
-
         update_option('immoadmin_sync_log', $log);
     }
 
@@ -640,17 +423,11 @@ class ImmoAdmin_Sync {
     }
 
     /**
-     * Clean up old/legacy meta keys from immoadmin_wohnung posts.
-     * Removes German ACF meta keys that are no longer used by ImmoAdmin sync.
-     * Also resets content hashes to force a full re-sync.
+     * Reset content hashes to force a full re-sync
      */
     public static function cleanup_old_meta() {
         global $wpdb;
 
-        // Known ImmoAdmin meta keys (these are kept)
-        $keep_keys = array_values(self::get_known_meta_keys());
-
-        // Get all immoadmin_wohnung post IDs
         $post_ids = $wpdb->get_col($wpdb->prepare(
             "SELECT ID FROM {$wpdb->posts} WHERE post_type = %s AND post_status != %s",
             'immoadmin_wohnung',
@@ -662,74 +439,12 @@ class ImmoAdmin_Sync {
         }
 
         $cleaned = 0;
-
         foreach ($post_ids as $post_id) {
-            // Get all meta for this post
-            $all_meta = get_post_meta($post_id);
-
-            foreach ($all_meta as $meta_key => $values) {
-                // Skip WordPress internal meta (starts with _)
-                if (strpos($meta_key, '_') === 0) {
-                    continue;
-                }
-
-                // Skip known ImmoAdmin keys
-                if (in_array($meta_key, $keep_keys, true)) {
-                    continue;
-                }
-
-                // Skip numbered media fields (image_1, floor_plan_2, document_3_url, etc.)
-                if (preg_match('/^(image_\d+|floor_plan_\d+|document_\d+_(url|title))$/', $meta_key)) {
-                    continue;
-                }
-
-                // Delete this unknown/legacy meta key
-                delete_post_meta($post_id, $meta_key);
-                $cleaned++;
-            }
-
             // Reset content hash to force re-sync
             delete_post_meta($post_id, '_content_hash');
+            $cleaned++;
         }
 
         return array('cleaned' => $cleaned, 'posts' => count($post_ids));
-    }
-
-    /**
-     * Get list of all meta keys that ImmoAdmin sync writes
-     */
-    private static function get_known_meta_keys() {
-        return array(
-            // Internal
-            '_immoadmin_id', '_content_hash', '_last_synced',
-            // Building
-            'building_id', 'building_name',
-            // Standard fields (from field_map)
-            'external_id', 'status', 'status_label',
-            'object_type', 'object_type_label',
-            'marketing_type', 'marketing_type_label',
-            'street', 'house_number', 'staircase', 'door_number',
-            'floor', 'floor_label', 'postal_code', 'city', 'country',
-            'orientation', 'latitude', 'longitude',
-            'living_area', 'usable_area', 'total_area', 'plot_area',
-            'balcony_area', 'terrace_area', 'roof_terrace_area', 'loggia_area',
-            'garden_area', 'basement_area', 'storage_area',
-            'room_count', 'bedrooms', 'bathrooms', 'toilets',
-            'purchase_price', 'purchase_price_investor', 'purchase_price_private',
-            'rent_cold', 'rent_warm', 'operating_costs', 'deposit',
-            'commission', 'price_per_sqm',
-            'construction_year', 'renovation_year', 'condition', 'equipment',
-            'heating_type', 'energy_source',
-            'hwb', 'hwb_class', 'fgee', 'fgee_class',
-            'parking_spaces', 'garage_spaces', 'outdoor_spaces', 'carport_spaces', 'parking_price',
-            // Computed
-            'outdoor_area_total',
-            // JSON fields
-            'features', 'extras',
-            // Media counts
-            'images_count', 'floor_plans_count', 'documents_count',
-            // Legacy JSON fields (kept for backwards compat)
-            'images', 'floor_plans', 'documents',
-        );
     }
 }
