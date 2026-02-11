@@ -61,7 +61,10 @@ class ImmoAdmin {
         add_action('init', array($this, 'init'));
         add_action('admin_menu', array($this, 'admin_menu'));
         add_action('rest_api_init', array($this, 'register_rest_routes'));
-        
+
+        // Allow our REST API namespace even when plugins block unauthenticated access
+        add_filter('rest_authentication_errors', array($this, 'allow_immoadmin_rest'), 99);
+
         // Activation/Deactivation hooks
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
@@ -87,7 +90,19 @@ class ImmoAdmin {
     public function register_rest_routes() {
         ImmoAdmin_Webhook::register_routes();
     }
-    
+
+    /**
+     * Allow unauthenticated access to our REST endpoints.
+     * Many security plugins block the REST API for non-logged-in users.
+     * Our endpoints have their own token + HMAC authentication.
+     */
+    public function allow_immoadmin_rest($result) {
+        if (!empty($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], '/wp-json/immoadmin/') !== false) {
+            return true;
+        }
+        return $result;
+    }
+
     public function activate() {
         // Create data directories
         if (!file_exists(IMMOADMIN_DATA_DIR)) {
