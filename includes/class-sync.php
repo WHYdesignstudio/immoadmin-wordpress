@@ -188,9 +188,8 @@ class ImmoAdmin_Sync {
             );
         }
 
-        // Store internal meta
+        // Store internal meta (content hash is set AFTER media downloads)
         update_post_meta($post_id, '_immoadmin_id', $unit['id']);
-        update_post_meta($post_id, '_content_hash', $content_hash);
         update_post_meta($post_id, '_last_synced', current_time('mysql'));
 
         // Clean up old numbered media fields before writing new ones
@@ -198,6 +197,7 @@ class ImmoAdmin_Sync {
 
         // Write ALL metaFields from backend directly - no mapping, no logic
         $media_downloaded = 0;
+        $media_failed = false;
         $trusted_host = self::parse_trusted_host($base_url);
 
         if (!empty($unit['metaFields'])) {
@@ -211,6 +211,7 @@ class ImmoAdmin_Sync {
                     } else {
                         // Fallback: store remote URL if download fails
                         update_post_meta($post_id, $key, esc_url_raw($value));
+                        $media_failed = true;
                     }
                 } else {
                     // All other fields: write directly (sanitize strings)
@@ -223,6 +224,15 @@ class ImmoAdmin_Sync {
                     }
                 }
             }
+        }
+
+        // Only set content hash if ALL media downloaded successfully.
+        // If any media failed, the next sync will retry the downloads.
+        if (!$media_failed) {
+            update_post_meta($post_id, '_content_hash', $content_hash);
+        } else {
+            // Clear hash so next sync retries
+            delete_post_meta($post_id, '_content_hash');
         }
 
         return array(
@@ -298,8 +308,8 @@ class ImmoAdmin_Sync {
         $local_path = IMMOADMIN_MEDIA_DIR . $filename;
         $local_url = content_url('/immoadmin/media/' . $filename);
 
-        // Skip if already downloaded
-        if (file_exists($local_path)) {
+        // Skip if already downloaded (and file is not empty/corrupt)
+        if (file_exists($local_path) && filesize($local_path) > 0) {
             return $local_url;
         }
 
