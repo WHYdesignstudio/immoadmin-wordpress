@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.0.2
+ * Version: 2.0.3
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.0.2');
+define('IMMOADMIN_VERSION', '2.0.3');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -64,6 +64,9 @@ class ImmoAdmin {
 
         // Allow our REST API namespace even when plugins block unauthenticated access
         add_filter('rest_authentication_errors', array($this, 'allow_immoadmin_rest'), 99);
+
+        // Run version-based migrations on every load (handles updates without reactivation)
+        add_action('admin_init', array($this, 'maybe_run_migrations'));
 
         // Activation/Deactivation hooks
         register_activation_hook(__FILE__, array($this, 'activate'));
@@ -151,6 +154,31 @@ class ImmoAdmin {
         }
     }
     
+    /**
+     * Run migrations when plugin version changes (works on update without reactivation)
+     */
+    public function maybe_run_migrations() {
+        $stored_version = get_option('immoadmin_db_version', '0');
+        if (version_compare($stored_version, IMMOADMIN_VERSION, '>=')) {
+            return;
+        }
+
+        // v2.0.3: Remove .htaccess from media directory (images must be public)
+        if (version_compare($stored_version, '2.0.3', '<')) {
+            self::unprotect_directory(IMMOADMIN_MEDIA_DIR);
+        }
+
+        // Ensure directories exist
+        if (!file_exists(IMMOADMIN_DATA_DIR)) {
+            wp_mkdir_p(IMMOADMIN_DATA_DIR);
+        }
+        if (!file_exists(IMMOADMIN_MEDIA_DIR)) {
+            wp_mkdir_p(IMMOADMIN_MEDIA_DIR);
+        }
+
+        update_option('immoadmin_db_version', IMMOADMIN_VERSION);
+    }
+
     public function deactivate() {
         flush_rewrite_rules();
     }
