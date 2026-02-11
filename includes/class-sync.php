@@ -340,55 +340,97 @@ class ImmoAdmin_Sync {
 
     /**
      * Sync media files (download if needed)
+     * Stores individual meta fields for Bricks Builder compatibility:
+     *   image_1, image_2, ... + images_count
+     *   floor_plan_1, floor_plan_2, ... + floor_plans_count
+     *   document_1_url, document_1_title, ... + documents_count
      */
     private static function sync_media($post_id, $unit) {
         $downloaded = 0;
 
-        // Always ensure media meta fields exist (even if empty)
-        // Prevents errors when Bricks/templates try to read them
+        // Clean up old numbered media meta fields first
+        self::cleanup_numbered_media_meta($post_id);
+
+        // Always ensure count fields exist (even if empty)
         if (empty($unit['media'])) {
-            update_post_meta($post_id, 'images', '[]');
-            update_post_meta($post_id, 'floor_plans', '[]');
-            update_post_meta($post_id, 'documents', '[]');
+            update_post_meta($post_id, 'images_count', 0);
+            update_post_meta($post_id, 'floor_plans_count', 0);
+            update_post_meta($post_id, 'documents_count', 0);
             return $downloaded;
         }
 
-        $local_media = array(
-            'images' => array(),
-            'floor_plans' => array(),
-            'documents' => array(),
-        );
-
-        foreach (array('images', 'floorPlans', 'documents') as $type) {
-            $meta_key = $type === 'floorPlans' ? 'floor_plans' : $type;
-
-            if (empty($unit['media'][$type])) {
-                continue;
-            }
-
-            foreach ($unit['media'][$type] as $media) {
+        // Process images
+        $image_count = 0;
+        if (!empty($unit['media']['images'])) {
+            foreach ($unit['media']['images'] as $media) {
                 $local_path = self::maybe_download_media($media);
-
                 if ($local_path) {
-                    $local_media[$meta_key][] = array(
-                        'url' => $local_path,
-                        'title' => $media['title'] ?? $media['originalFilename'] ?? '',
-                        'hash' => $media['contentHash'] ?? '',
-                    );
-
+                    $image_count++;
+                    update_post_meta($post_id, 'image_' . $image_count, $local_path);
                     if (strpos($local_path, '/immoadmin/media/') !== false) {
                         $downloaded++;
                     }
                 }
             }
         }
+        update_post_meta($post_id, 'images_count', $image_count);
 
-        // Store local media URLs
-        update_post_meta($post_id, 'images', json_encode($local_media['images']));
-        update_post_meta($post_id, 'floor_plans', json_encode($local_media['floor_plans']));
-        update_post_meta($post_id, 'documents', json_encode($local_media['documents']));
+        // Process floor plans
+        $floor_plan_count = 0;
+        if (!empty($unit['media']['floorPlans'])) {
+            foreach ($unit['media']['floorPlans'] as $media) {
+                $local_path = self::maybe_download_media($media);
+                if ($local_path) {
+                    $floor_plan_count++;
+                    update_post_meta($post_id, 'floor_plan_' . $floor_plan_count, $local_path);
+                    if (strpos($local_path, '/immoadmin/media/') !== false) {
+                        $downloaded++;
+                    }
+                }
+            }
+        }
+        update_post_meta($post_id, 'floor_plans_count', $floor_plan_count);
+
+        // Process documents (URL + title)
+        $document_count = 0;
+        if (!empty($unit['media']['documents'])) {
+            foreach ($unit['media']['documents'] as $media) {
+                $local_path = self::maybe_download_media($media);
+                if ($local_path) {
+                    $document_count++;
+                    update_post_meta($post_id, 'document_' . $document_count . '_url', $local_path);
+                    update_post_meta($post_id, 'document_' . $document_count . '_title',
+                        sanitize_text_field($media['title'] ?? $media['originalFilename'] ?? ''));
+                }
+            }
+        }
+        update_post_meta($post_id, 'documents_count', $document_count);
 
         return $downloaded;
+    }
+
+    /**
+     * Remove old numbered media meta fields before re-syncing
+     */
+    private static function cleanup_numbered_media_meta($post_id) {
+        global $wpdb;
+
+        // Delete all image_N, floor_plan_N, document_N_url, document_N_title fields
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->postmeta}
+             WHERE post_id = %d
+             AND (
+                 meta_key REGEXP '^image_[0-9]+$'
+                 OR meta_key REGEXP '^floor_plan_[0-9]+$'
+                 OR meta_key REGEXP '^document_[0-9]+_(url|title)$'
+             )",
+            $post_id
+        ));
+
+        // Also remove legacy JSON fields
+        delete_post_meta($post_id, 'images');
+        delete_post_meta($post_id, 'floor_plans');
+        delete_post_meta($post_id, 'documents');
     }
 
     /**
@@ -636,6 +678,11 @@ class ImmoAdmin_Sync {
                     continue;
                 }
 
+                // Skip numbered media fields (image_1, floor_plan_2, document_3_url, etc.)
+                if (preg_match('/^(image_\d+|floor_plan_\d+|document_\d+_(url|title))$/', $meta_key)) {
+                    continue;
+                }
+
                 // Delete this unknown/legacy meta key
                 delete_post_meta($post_id, $meta_key);
                 $cleaned++;
@@ -678,7 +725,11 @@ class ImmoAdmin_Sync {
             // Computed
             'outdoor_area_total',
             // JSON fields
-            'features', 'extras', 'images', 'floor_plans', 'documents',
+            'features', 'extras',
+            // Media counts
+            'images_count', 'floor_plans_count', 'documents_count',
+            // Legacy JSON fields (kept for backwards compat)
+            'images', 'floor_plans', 'documents',
         );
     }
 }
