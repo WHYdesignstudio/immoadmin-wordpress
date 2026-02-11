@@ -13,6 +13,10 @@ class ImmoAdmin_Admin {
      * Render the main dashboard page
      */
     public static function render_dashboard() {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Zugriff verweigert.'));
+        }
+
         // Handle token save (always process this first)
         if (isset($_POST['immoadmin_save_token']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_save_token')) {
             $new_token = trim(sanitize_text_field($_POST['immoadmin_token']));
@@ -20,7 +24,7 @@ class ImmoAdmin_Admin {
             $token_hash = hash('sha256', $new_token);
             update_option('immoadmin_webhook_token_hash', $token_hash);
             // Store masked version for display only
-            $masked = str_repeat('•', 28) . substr($new_token, -4);
+            $masked = str_repeat('•', 32);
             update_option('immoadmin_webhook_token_masked', $masked);
             // Remove old plain text token if exists
             delete_option('immoadmin_webhook_token');

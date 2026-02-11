@@ -138,14 +138,17 @@ class ImmoAdmin_Sync {
     private static function get_existing_posts() {
         global $wpdb;
 
-        $results = $wpdb->get_results(
+        $results = $wpdb->get_results($wpdb->prepare(
             "SELECT pm.meta_value as immoadmin_id, pm.post_id
              FROM {$wpdb->postmeta} pm
              INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
-             WHERE pm.meta_key = '_immoadmin_id'
-             AND p.post_type = 'immoadmin_wohnung'
-             AND p.post_status != 'trash'"
-        );
+             WHERE pm.meta_key = %s
+             AND p.post_type = %s
+             AND p.post_status != %s",
+            '_immoadmin_id',
+            'immoadmin_wohnung',
+            'trash'
+        ));
 
         $map = array();
         foreach ($results as $row) {

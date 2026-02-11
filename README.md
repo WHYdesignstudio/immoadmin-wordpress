@@ -5,7 +5,7 @@ Synchronisiert Immobilien-Daten von [ImmoAdmin](https://immoadmin.at) und stellt
 ## Features
 
 - **Automatischer Sync** - Empfängt Daten direkt von ImmoAdmin via Webhook
-- **Custom Post Type** - Erstellt `immoadmin_unit` Posts für jede Einheit
+- **Custom Post Type** - Erstellt `immoadmin_wohnung` Posts mit deutschen Meta-Feld-Beschreibungen
 - **Sichere Verbindung** - Token-basierte Authentifizierung mit HMAC-Signatur
 - **Auto-Updates** - Aktualisiert sich automatisch über GitHub Releases
 - **Saubere Deinstallation** - Entfernt alle Daten beim Löschen
@@ -27,45 +27,65 @@ Synchronisiert Immobilien-Daten von [ImmoAdmin](https://immoadmin.at) und stellt
 
 ## Datenstruktur
 
-Das Plugin erstellt den Custom Post Type `immoadmin_unit` mit folgenden Meta-Feldern:
+Das Plugin erstellt den Custom Post Type `immoadmin_wohnung` mit folgenden Meta-Feldern:
 
 ### Basis
 - `_immoadmin_id` - Eindeutige ID aus ImmoAdmin
 - `status` - available, reserved, sold
-- `object_type` - flat, house, plot, etc.
+- `object_type` - flat, house, plot, commercial, parking
+- `marketing_type` - sale, rent
 
 ### Lage
-- `street`, `house_number`, `postal_code`, `city`
-- `floor`, `door_number`, `staircase`
+- `street`, `house_number`, `postal_code`, `city`, `country`
+- `floor`, `floor_label`, `door_number`, `staircase`, `orientation`
 - `latitude`, `longitude`
 
 ### Flächen (m²)
-- `living_area`, `usable_area`, `total_area`
-- `balcony_area`, `terrace_area`, `garden_area`
+- `living_area`, `usable_area`, `total_area`, `plot_area`
+- `balcony_area`, `terrace_area`, `roof_terrace_area`, `loggia_area`
+- `garden_area`, `basement_area`, `storage_area`
 
 ### Preise (€)
-- `purchase_price`, `rent_cold`, `rent_warm`
-- `operating_costs`, `deposit`
+- `purchase_price`, `purchase_price_investor`, `purchase_price_private`
+- `rent_cold`, `rent_warm`, `operating_costs`, `deposit`
+- `commission`, `price_per_sqm`
 
-### Räume
-- `room_count`, `bedrooms`, `bathrooms`
+### Zimmer
+- `room_count`, `bedrooms`, `bathrooms`, `toilets`
 
 ### Energie
 - `hwb`, `hwb_class`, `fgee`, `fgee_class`
+- `heating_type`, `energy_source`
+
+### Gebäude
+- `building_id`, `building_name`
+- `construction_year`, `renovation_year`
+- `condition`, `equipment`
+
+### Parkplätze
+- `parking_spaces`, `garage_spaces`, `outdoor_spaces`, `carport_spaces`
+- `parking_price`
+
+### Medien (JSON)
+- `images`, `floor_plans`, `documents`
+- `features`, `extras`
 
 ## Webhook Endpoints
+
+Alle Endpoints erfordern Token + HMAC-Signatur Authentifizierung.
 
 - `POST /wp-json/immoadmin/v1/sync` - Sync-Daten empfangen
 - `POST /wp-json/immoadmin/v1/verify` - Verbindung prüfen
 - `GET /wp-json/immoadmin/v1/status` - Status abfragen
-- `GET /wp-json/immoadmin/v1/debug` - Debug-Infos
 
 ## Sicherheit
 
 - Token wird als SHA-256 Hash gespeichert (nicht plain text)
 - Requests werden mit HMAC-SHA256 signiert
-- Timestamp-Validierung verhindert Replay-Attacken
-- HTTPS erforderlich
+- Timestamp-Validierung verhindert Replay-Attacken (max 5 Minuten)
+- Rate Limiting: max 20 Requests/Minute pro IP
+- SSRF-Schutz bei Media-Downloads (private IPs geblockt)
+- MIME-Type Validierung bei heruntergeladenen Medien
 
 ## Updates
 
@@ -74,25 +94,11 @@ Das Plugin prüft automatisch auf Updates von GitHub. Bei neuen Releases erschei
 ## Deinstallation
 
 Bei Löschen des Plugins werden **alle Daten entfernt**:
-- Alle `immoadmin_unit` Posts
+- Alle `immoadmin_wohnung` Posts und Meta-Daten
 - Alle Plugin-Options
 - JSON-Dateien und Media-Ordner
 
 Bei bloßem Deaktivieren bleiben die Daten erhalten.
-
-## Entwicklung
-
-```bash
-# Repo klonen
-git clone https://github.com/WHYdesignstudio/immoadmin-wordpress.git
-
-# In WordPress plugins Ordner verlinken
-ln -s /path/to/immoadmin-wp-plugin /path/to/wordpress/wp-content/plugins/
-```
-
-## Support
-
-Bei Fragen: [support@immoadmin.at](mailto:support@immoadmin.at)
 
 ## Lizenz
 
