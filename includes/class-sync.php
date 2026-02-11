@@ -392,6 +392,31 @@ class ImmoAdmin_Sync {
     }
 
     /**
+     * Get the trusted ImmoAdmin base URL host from the stored sync JSON
+     */
+    private static function get_trusted_host() {
+        static $trusted_host = null;
+        if ($trusted_host !== null) {
+            return $trusted_host;
+        }
+
+        $json_file = self::find_json_file();
+        if ($json_file && file_exists($json_file)) {
+            $data = json_decode(file_get_contents($json_file), true);
+            if (!empty($data['meta']['baseUrl'])) {
+                $parsed = parse_url($data['meta']['baseUrl']);
+                if (!empty($parsed['host'])) {
+                    $trusted_host = strtolower($parsed['host']);
+                    return $trusted_host;
+                }
+            }
+        }
+
+        $trusted_host = '';
+        return $trusted_host;
+    }
+
+    /**
      * Validate URL is safe to fetch (SSRF protection)
      */
     private static function is_safe_url($url) {
@@ -406,6 +431,12 @@ class ImmoAdmin_Sync {
         }
 
         $host = strtolower($parsed['host']);
+
+        // Trust the ImmoAdmin server (authenticated sync source)
+        $trusted = self::get_trusted_host();
+        if ($trusted && $host === $trusted) {
+            return true;
+        }
 
         // Block localhost
         if (in_array($host, array('localhost', '0.0.0.0', '[::1]'), true)) {
