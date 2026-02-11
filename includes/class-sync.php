@@ -143,7 +143,7 @@ class ImmoAdmin_Sync {
              FROM {$wpdb->postmeta} pm
              INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
              WHERE pm.meta_key = '_immoadmin_id'
-             AND p.post_type = 'immoadmin_unit'
+             AND p.post_type = 'immoadmin_wohnung'
              AND p.post_status != 'trash'"
         );
 
@@ -175,7 +175,7 @@ class ImmoAdmin_Sync {
 
         // Prepare post data (sanitize inputs)
         $post_data = array(
-            'post_type'    => 'immoadmin_unit',
+            'post_type'    => 'immoadmin_wohnung',
             'post_status'  => 'publish',
             'post_title'   => sanitize_text_field($unit['title'] ?? 'Einheit'),
             'post_content' => wp_kses_post($unit['description'] ?? ''),
@@ -311,6 +311,20 @@ class ImmoAdmin_Sync {
                 }
                 update_post_meta($post_id, $meta_key, $value);
             }
+        }
+
+        // Generate floor_label from floor number
+        if (isset($unit['floor'])) {
+            $floor = intval($unit['floor']);
+            $floor_labels = array(
+                -3 => '3. UG', -2 => '2. UG', -1 => '1. UG',
+                0 => 'EG',
+                1 => '1. OG', 2 => '2. OG', 3 => '3. OG', 4 => '4. OG', 5 => '5. OG',
+                6 => '6. OG', 7 => '7. OG', 8 => '8. OG', 9 => '9. OG', 10 => '10. OG',
+                96 => 'OG', 97 => '1. DG', 98 => '2. DG', 99 => 'DG',
+            );
+            $label = isset($floor_labels[$floor]) ? $floor_labels[$floor] : $floor . '. OG';
+            update_post_meta($post_id, 'floor_label', sanitize_text_field($label));
         }
 
         // Arrays/Objects as JSON (encode ensures no raw HTML)
@@ -536,7 +550,7 @@ class ImmoAdmin_Sync {
             'json_file' => $json_file ? basename($json_file) : null,
             'json_meta' => $json_data['meta'] ?? null,
             'media_dir_writable' => is_writable(IMMOADMIN_MEDIA_DIR) || is_writable(IMMOADMIN_DATA_DIR),
-            'unit_count' => wp_count_posts('immoadmin_unit')->publish ?? 0,
+            'unit_count' => wp_count_posts('immoadmin_wohnung')->publish ?? 0,
             'building_count' => !empty($json_data['buildings']) ? count($json_data['buildings']) : 0,
             'last_sync' => get_option('immoadmin_last_sync'),
             'last_stats' => get_option('immoadmin_last_sync_stats'),

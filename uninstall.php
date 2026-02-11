@@ -11,9 +11,9 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
     exit;
 }
 
-// Delete all immoadmin_unit posts
+// Delete all immoadmin posts (both old and new post type)
 $posts = get_posts(array(
-    'post_type' => 'immoadmin_unit',
+    'post_type' => array('immoadmin_wohnung', 'immoadmin_unit'),
     'numberposts' => -1,
     'post_status' => 'any',
 ));
