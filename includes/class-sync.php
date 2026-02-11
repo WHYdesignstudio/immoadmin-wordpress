@@ -316,6 +316,41 @@ class ImmoAdmin_Sync {
             }
         }
 
+        // Generate German labels for enum fields
+        $status_labels = array(
+            'available' => 'Verfügbar',
+            'reserved'  => 'Reserviert',
+            'sold'      => 'Verkauft',
+        );
+        if (!empty($unit['status'])) {
+            $s = strtolower($unit['status']);
+            $label = isset($status_labels[$s]) ? $status_labels[$s] : $unit['status'];
+            update_post_meta($post_id, 'status_label', sanitize_text_field($label));
+        }
+
+        $object_type_labels = array(
+            'flat'       => 'Wohnung',
+            'house'      => 'Haus',
+            'plot'       => 'Grundstück',
+            'commercial' => 'Gewerbe',
+            'parking'    => 'Stellplatz',
+        );
+        if (!empty($unit['objectType'])) {
+            $ot = strtolower($unit['objectType']);
+            $label = isset($object_type_labels[$ot]) ? $object_type_labels[$ot] : $unit['objectType'];
+            update_post_meta($post_id, 'object_type_label', sanitize_text_field($label));
+        }
+
+        $marketing_type_labels = array(
+            'sale' => 'Kauf',
+            'rent' => 'Miete',
+        );
+        if (!empty($unit['marketingType'])) {
+            $mt = strtolower($unit['marketingType']);
+            $label = isset($marketing_type_labels[$mt]) ? $marketing_type_labels[$mt] : $unit['marketingType'];
+            update_post_meta($post_id, 'marketing_type_label', sanitize_text_field($label));
+        }
+
         // Generate floor_label from floor number
         if (isset($unit['floor'])) {
             $floor = intval($unit['floor']);

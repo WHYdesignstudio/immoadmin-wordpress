@@ -93,8 +93,11 @@ class ImmoAdmin_Post_Type {
 
             // === Grunddaten ===
             'status'                 => array('type' => 'string', 'description' => 'Status (available / reserved / sold)'),
+            'status_label'           => array('type' => 'string', 'description' => 'Status (Verfügbar / Reserviert / Verkauft)'),
             'object_type'            => array('type' => 'string', 'description' => 'Objektart (flat / house / plot / commercial / parking)'),
+            'object_type_label'      => array('type' => 'string', 'description' => 'Objektart (Wohnung / Haus / Grundstück / Gewerbe / Stellplatz)'),
             'marketing_type'         => array('type' => 'string', 'description' => 'Vermarktungsart (sale / rent)'),
+            'marketing_type_label'   => array('type' => 'string', 'description' => 'Vermarktungsart (Kauf / Miete)'),
 
             // === Adresse ===
             'street'                 => array('type' => 'string', 'description' => 'Straße'),
