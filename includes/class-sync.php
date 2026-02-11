@@ -235,13 +235,17 @@ class ImmoAdmin_Sync {
         $field_map = array(
             'externalId'            => 'external_id',
             'status'                => 'status',
+            'statusLabel'           => 'status_label',
             'objectType'            => 'object_type',
+            'objectTypeLabel'       => 'object_type_label',
             'marketingType'         => 'marketing_type',
+            'marketingTypeLabel'    => 'marketing_type_label',
             'street'                => 'street',
             'houseNumber'           => 'house_number',
             'staircase'             => 'staircase',
             'doorNumber'            => 'door_number',
             'floor'                 => 'floor',
+            'floorLabel'            => 'floor_label',
             'postalCode'            => 'postal_code',
             'city'                  => 'city',
             'country'               => 'country',
@@ -314,55 +318,6 @@ class ImmoAdmin_Sync {
                 }
                 update_post_meta($post_id, $meta_key, $value);
             }
-        }
-
-        // Generate German labels for enum fields
-        $status_labels = array(
-            'available' => 'Verfügbar',
-            'reserved'  => 'Reserviert',
-            'sold'      => 'Verkauft',
-        );
-        if (!empty($unit['status'])) {
-            $s = strtolower($unit['status']);
-            $label = isset($status_labels[$s]) ? $status_labels[$s] : $unit['status'];
-            update_post_meta($post_id, 'status_label', sanitize_text_field($label));
-        }
-
-        $object_type_labels = array(
-            'flat'       => 'Wohnung',
-            'house'      => 'Haus',
-            'plot'       => 'Grundstück',
-            'commercial' => 'Gewerbe',
-            'parking'    => 'Stellplatz',
-        );
-        if (!empty($unit['objectType'])) {
-            $ot = strtolower($unit['objectType']);
-            $label = isset($object_type_labels[$ot]) ? $object_type_labels[$ot] : $unit['objectType'];
-            update_post_meta($post_id, 'object_type_label', sanitize_text_field($label));
-        }
-
-        $marketing_type_labels = array(
-            'sale' => 'Kauf',
-            'rent' => 'Miete',
-        );
-        if (!empty($unit['marketingType'])) {
-            $mt = strtolower($unit['marketingType']);
-            $label = isset($marketing_type_labels[$mt]) ? $marketing_type_labels[$mt] : $unit['marketingType'];
-            update_post_meta($post_id, 'marketing_type_label', sanitize_text_field($label));
-        }
-
-        // Generate floor_label from floor number
-        if (isset($unit['floor'])) {
-            $floor = intval($unit['floor']);
-            $floor_labels = array(
-                -3 => '3. UG', -2 => '2. UG', -1 => '1. UG',
-                0 => 'EG',
-                1 => '1. OG', 2 => '2. OG', 3 => '3. OG', 4 => '4. OG', 5 => '5. OG',
-                6 => '6. OG', 7 => '7. OG', 8 => '8. OG', 9 => '9. OG', 10 => '10. OG',
-                96 => 'OG', 97 => '1. DG', 98 => '2. DG', 99 => 'DG',
-            );
-            $label = isset($floor_labels[$floor]) ? $floor_labels[$floor] : $floor . '. OG';
-            update_post_meta($post_id, 'floor_label', sanitize_text_field($label));
         }
 
         // Arrays/Objects as JSON (encode ensures no raw HTML)
