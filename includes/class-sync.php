@@ -344,7 +344,12 @@ class ImmoAdmin_Sync {
     private static function sync_media($post_id, $unit) {
         $downloaded = 0;
 
+        // Always ensure media meta fields exist (even if empty)
+        // Prevents errors when Bricks/templates try to read them
         if (empty($unit['media'])) {
+            update_post_meta($post_id, 'images', '[]');
+            update_post_meta($post_id, 'floor_plans', '[]');
+            update_post_meta($post_id, 'documents', '[]');
             return $downloaded;
         }
 
