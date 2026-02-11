@@ -166,7 +166,8 @@ class ImmoAdmin_Sync {
         $existing_post_id = isset($existing_posts[$immoadmin_id]) ? $existing_posts[$immoadmin_id] : null;
 
         // Generate content hash for change detection
-        $content_hash = md5(json_encode($unit));
+        // Version prefix invalidates old hashes when sync logic changes
+        $content_hash = md5('v2:' . json_encode($unit));
 
         // Check if we need to update
         if ($existing_post_id) {
@@ -319,6 +320,14 @@ class ImmoAdmin_Sync {
                 update_post_meta($post_id, $meta_key, $value);
             }
         }
+
+        // Computed fields
+        $outdoor_sum = floatval($unit['balconyArea'] ?? 0)
+            + floatval($unit['terraceArea'] ?? 0)
+            + floatval($unit['roofTerraceArea'] ?? 0)
+            + floatval($unit['loggiaArea'] ?? 0)
+            + floatval($unit['gardenArea'] ?? 0);
+        update_post_meta($post_id, 'outdoor_area_total', $outdoor_sum);
 
         // Arrays/Objects as JSON (encode ensures no raw HTML)
         if (!empty($unit['features'])) {
@@ -549,6 +558,91 @@ class ImmoAdmin_Sync {
             'last_stats' => get_option('immoadmin_last_sync_stats'),
             'webhook_token' => get_option('immoadmin_webhook_token_masked', ''),
             'webhook_configured' => !empty(get_option('immoadmin_webhook_token_hash')),
+        );
+    }
+
+    /**
+     * Clean up old/legacy meta keys from immoadmin_wohnung posts.
+     * Removes German ACF meta keys that are no longer used by ImmoAdmin sync.
+     * Also resets content hashes to force a full re-sync.
+     */
+    public static function cleanup_old_meta() {
+        global $wpdb;
+
+        // Known ImmoAdmin meta keys (these are kept)
+        $keep_keys = array_values(self::get_known_meta_keys());
+
+        // Get all immoadmin_wohnung post IDs
+        $post_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_type = %s AND post_status != %s",
+            'immoadmin_wohnung',
+            'trash'
+        ));
+
+        if (empty($post_ids)) {
+            return array('cleaned' => 0, 'posts' => 0);
+        }
+
+        $cleaned = 0;
+
+        foreach ($post_ids as $post_id) {
+            // Get all meta for this post
+            $all_meta = get_post_meta($post_id);
+
+            foreach ($all_meta as $meta_key => $values) {
+                // Skip WordPress internal meta (starts with _)
+                if (strpos($meta_key, '_') === 0) {
+                    continue;
+                }
+
+                // Skip known ImmoAdmin keys
+                if (in_array($meta_key, $keep_keys, true)) {
+                    continue;
+                }
+
+                // Delete this unknown/legacy meta key
+                delete_post_meta($post_id, $meta_key);
+                $cleaned++;
+            }
+
+            // Reset content hash to force re-sync
+            delete_post_meta($post_id, '_content_hash');
+        }
+
+        return array('cleaned' => $cleaned, 'posts' => count($post_ids));
+    }
+
+    /**
+     * Get list of all meta keys that ImmoAdmin sync writes
+     */
+    private static function get_known_meta_keys() {
+        return array(
+            // Internal
+            '_immoadmin_id', '_content_hash', '_last_synced',
+            // Building
+            'building_id', 'building_name',
+            // Standard fields (from field_map)
+            'external_id', 'status', 'status_label',
+            'object_type', 'object_type_label',
+            'marketing_type', 'marketing_type_label',
+            'street', 'house_number', 'staircase', 'door_number',
+            'floor', 'floor_label', 'postal_code', 'city', 'country',
+            'orientation', 'latitude', 'longitude',
+            'living_area', 'usable_area', 'total_area', 'plot_area',
+            'balcony_area', 'terrace_area', 'roof_terrace_area', 'loggia_area',
+            'garden_area', 'basement_area', 'storage_area',
+            'room_count', 'bedrooms', 'bathrooms', 'toilets',
+            'purchase_price', 'purchase_price_investor', 'purchase_price_private',
+            'rent_cold', 'rent_warm', 'operating_costs', 'deposit',
+            'commission', 'price_per_sqm',
+            'construction_year', 'renovation_year', 'condition', 'equipment',
+            'heating_type', 'energy_source',
+            'hwb', 'hwb_class', 'fgee', 'fgee_class',
+            'parking_spaces', 'garage_spaces', 'outdoor_spaces', 'carport_spaces', 'parking_price',
+            // Computed
+            'outdoor_area_total',
+            // JSON fields
+            'features', 'extras', 'images', 'floor_plans', 'documents',
         );
     }
 }

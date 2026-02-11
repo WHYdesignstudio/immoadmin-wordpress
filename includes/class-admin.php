@@ -58,6 +58,19 @@ class ImmoAdmin_Admin {
             return;
         }
 
+        // Handle cleanup old meta
+        if (isset($_POST['immoadmin_cleanup']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_cleanup')) {
+            $cleanup_result = ImmoAdmin_Sync::cleanup_old_meta();
+            $cleanup_message = $cleanup_result['cleaned'] . ' alte Meta-Einträge von ' . $cleanup_result['posts'] . ' Posts entfernt. Content-Hashes zurückgesetzt.';
+            $cleanup_success = true;
+
+            // Auto-run sync after cleanup
+            $result = ImmoAdmin_Sync::run();
+            if ($result['success']) {
+                $cleanup_message .= ' Re-Sync: ' . $result['stats']['created'] . ' erstellt, ' . $result['stats']['updated'] . ' aktualisiert.';
+            }
+        }
+
         // Handle manual sync
         if (isset($_POST['immoadmin_sync']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_sync')) {
             $result = ImmoAdmin_Sync::run();
@@ -102,6 +115,13 @@ class ImmoAdmin_Admin {
                 <div class="immoadmin-notice <?php echo $token_success ? 'success' : 'error'; ?>">
                     <span class="dashicons <?php echo $token_success ? 'dashicons-yes-alt' : 'dashicons-warning'; ?>"></span>
                     <?php echo esc_html($token_message); ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if (isset($cleanup_message)): ?>
+                <div class="immoadmin-notice <?php echo $cleanup_success ? 'success' : 'error'; ?>">
+                    <span class="dashicons <?php echo $cleanup_success ? 'dashicons-yes-alt' : 'dashicons-warning'; ?>"></span>
+                    <?php echo esc_html($cleanup_message); ?>
                 </div>
             <?php endif; ?>
 
@@ -217,6 +237,18 @@ class ImmoAdmin_Admin {
                 <h4 style="margin-top: 24px;">Webhook URL</h4>
                 <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">Diese URL wird automatisch von ImmoAdmin aufgerufen.</p>
                 <code class="immoadmin-code"><?php echo esc_html(rest_url('immoadmin/v1/sync')); ?></code>
+
+                <h4 style="margin-top: 24px;">Alte Meta-Daten bereinigen</h4>
+                <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">
+                    Entfernt alte/unbekannte Custom Fields (z.B. von ACF) und erzwingt einen kompletten Re-Sync.
+                </p>
+                <form method="post" style="display: inline;">
+                    <?php wp_nonce_field('immoadmin_cleanup'); ?>
+                    <button type="submit" name="immoadmin_cleanup" class="immoadmin-btn immoadmin-btn-secondary" onclick="return confirm('Alte Meta-Daten löschen und Re-Sync starten?');">
+                        <span class="dashicons dashicons-database-remove"></span>
+                        Bereinigen &amp; Re-Sync
+                    </button>
+                </form>
 
                 <h4 style="margin-top: 24px;">Verbindung trennen</h4>
                 <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">Token entfernen und Plugin zurücksetzen.</p>
