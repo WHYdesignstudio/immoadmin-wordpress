@@ -85,9 +85,21 @@ class ImmoAdmin_Sync {
 
         // Process units
         $processed_ids = array();
+        $total_units = !empty($data['units']) ? count($data['units']) : 0;
+        $current_unit = 0;
 
         if (!empty($data['units'])) {
             foreach ($data['units'] as $unit) {
+                $current_unit++;
+
+                // Update progress so the admin dashboard can show it
+                update_option('immoadmin_sync_progress', array(
+                    'current' => $current_unit,
+                    'total' => $total_units,
+                    'unit_title' => $unit['title'] ?? '',
+                    'stats' => $stats,
+                ), false); // false = don't autoload
+
                 $result = self::sync_unit($unit, $existing_posts, $data['meta']['baseUrl'] ?? '');
                 $processed_ids[] = $unit['id'];
 
@@ -119,9 +131,10 @@ class ImmoAdmin_Sync {
         $duration = round(microtime(true) - $start_time, 2);
         self::log_sync($stats, $duration);
 
-        // Update last sync time
+        // Update last sync time and clear progress
         update_option('immoadmin_last_sync', current_time('mysql'));
         update_option('immoadmin_last_sync_stats', $stats);
+        delete_option('immoadmin_sync_progress');
 
         return array(
             'success' => empty($stats['errors']),

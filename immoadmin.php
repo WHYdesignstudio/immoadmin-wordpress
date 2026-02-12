@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.0.7
+ * Version: 2.1.0
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.0.7');
+define('IMMOADMIN_VERSION', '2.1.0');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -70,6 +70,9 @@ class ImmoAdmin {
 
         // Background sync via WP Cron
         add_action('immoadmin_background_sync', array('ImmoAdmin_Sync', 'run_background'));
+
+        // AJAX handler for sync progress polling
+        add_action('wp_ajax_immoadmin_sync_progress', array($this, 'ajax_sync_progress'));
 
         // Activation/Deactivation hooks
         register_activation_hook(__FILE__, array($this, 'activate'));
@@ -181,6 +184,28 @@ class ImmoAdmin {
         }
 
         update_option('immoadmin_db_version', IMMOADMIN_VERSION);
+    }
+
+    /**
+     * AJAX handler: return current sync progress
+     */
+    public function ajax_sync_progress() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        $status = get_option('immoadmin_sync_status', 'idle');
+        $progress = get_option('immoadmin_sync_progress', null);
+        $last_result = get_option('immoadmin_last_sync_result', null);
+        $last_stats = get_option('immoadmin_last_sync_stats', null);
+
+        wp_send_json_success(array(
+            'status' => $status,
+            'progress' => $progress,
+            'last_result' => $last_result,
+            'last_stats' => $last_stats,
+            'last_sync' => get_option('immoadmin_last_sync', ''),
+        ));
     }
 
     public function deactivate() {

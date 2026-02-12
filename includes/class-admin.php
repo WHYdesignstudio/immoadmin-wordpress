@@ -61,23 +61,24 @@ class ImmoAdmin_Admin {
         // Handle cleanup old meta
         if (isset($_POST['immoadmin_cleanup']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_cleanup')) {
             $cleanup_result = ImmoAdmin_Sync::cleanup_old_meta();
-            $cleanup_message = $cleanup_result['cleaned'] . ' alte Meta-Einträge von ' . $cleanup_result['posts'] . ' Posts entfernt. Content-Hashes zurückgesetzt.';
+            $cleanup_message = $cleanup_result['cleaned'] . ' Content-Hashes von ' . $cleanup_result['posts'] . ' Posts zurückgesetzt. Re-Sync gestartet...';
             $cleanup_success = true;
 
-            // Auto-run sync after cleanup
-            $result = ImmoAdmin_Sync::run();
-            if ($result['success']) {
-                $cleanup_message .= ' Re-Sync: ' . $result['stats']['created'] . ' erstellt, ' . $result['stats']['updated'] . ' aktualisiert.';
-            }
+            // Run re-sync in background
+            wp_clear_scheduled_hook('immoadmin_background_sync');
+            wp_schedule_single_event(time(), 'immoadmin_background_sync');
+            spawn_cron();
+            update_option('immoadmin_sync_status', 'running');
         }
 
-        // Handle manual sync
+        // Handle manual sync (run in background so progress is tracked)
         if (isset($_POST['immoadmin_sync']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_sync')) {
-            $result = ImmoAdmin_Sync::run();
-            $sync_message = $result['success']
-                ? 'Sync erfolgreich! ' . $result['stats']['created'] . ' erstellt, ' . $result['stats']['updated'] . ' aktualisiert.'
-                : 'Sync fehlgeschlagen: ' . ($result['error'] ?? 'Unbekannter Fehler');
-            $sync_success = $result['success'];
+            wp_clear_scheduled_hook('immoadmin_background_sync');
+            wp_schedule_single_event(time(), 'immoadmin_background_sync');
+            spawn_cron();
+            update_option('immoadmin_sync_status', 'running');
+            $sync_message = 'Sync gestartet...';
+            $sync_success = true;
         }
 
         $status = ImmoAdmin_Sync::get_status();
@@ -124,6 +125,27 @@ class ImmoAdmin_Admin {
                     <?php echo esc_html($cleanup_message); ?>
                 </div>
             <?php endif; ?>
+
+            <!-- Sync Progress Banner (hidden by default, shown via JS when sync is running) -->
+            <div id="immoadmin-sync-progress" class="immoadmin-progress-banner" style="display:none;">
+                <div class="progress-content">
+                    <span class="dashicons dashicons-update immoadmin-spin"></span>
+                    <div class="progress-info">
+                        <strong id="progress-title">Sync läuft...</strong>
+                        <span id="progress-detail"></span>
+                    </div>
+                </div>
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+                </div>
+                <div class="progress-stats" id="progress-stats"></div>
+            </div>
+
+            <!-- Sync Complete Banner (shown after background sync finishes) -->
+            <div id="immoadmin-sync-complete" class="immoadmin-notice success" style="display:none;">
+                <span class="dashicons dashicons-yes-alt"></span>
+                <span id="sync-complete-message">Sync abgeschlossen!</span>
+            </div>
 
             <!-- Status Cards -->
             <div class="immoadmin-cards">
@@ -261,6 +283,78 @@ class ImmoAdmin_Admin {
                 </form>
             </div>
         </div>
+
+        <script>
+        (function() {
+            var pollInterval = null;
+            var wasRunning = false;
+
+            function checkProgress() {
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', '<?php echo esc_js(admin_url('admin-ajax.php')); ?>');
+                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                xhr.onload = function() {
+                    if (xhr.status !== 200) return;
+                    try {
+                        var resp = JSON.parse(xhr.responseText);
+                        if (!resp.success) return;
+                        var d = resp.data;
+                        updateUI(d);
+                    } catch(e) {}
+                };
+                xhr.send('action=immoadmin_sync_progress');
+            }
+
+            function updateUI(d) {
+                var banner = document.getElementById('immoadmin-sync-progress');
+                var complete = document.getElementById('immoadmin-sync-complete');
+
+                if (d.status === 'running' && d.progress) {
+                    wasRunning = true;
+                    banner.style.display = 'block';
+                    complete.style.display = 'none';
+
+                    var pct = d.progress.total > 0 ? Math.round((d.progress.current / d.progress.total) * 100) : 0;
+                    document.getElementById('progress-bar').style.width = pct + '%';
+                    document.getElementById('progress-title').textContent = 'Sync läuft... ' + pct + '%';
+                    document.getElementById('progress-detail').textContent =
+                        'Einheit ' + d.progress.current + ' / ' + d.progress.total +
+                        (d.progress.unit_title ? ' — ' + d.progress.unit_title : '');
+
+                    var stats = d.progress.stats || {};
+                    var parts = [];
+                    if (stats.created > 0) parts.push('+' + stats.created + ' erstellt');
+                    if (stats.updated > 0) parts.push('↻' + stats.updated + ' aktualisiert');
+                    if (stats.skipped > 0) parts.push(stats.skipped + ' übersprungen');
+                    if (stats.media_downloaded > 0) parts.push('📷 ' + stats.media_downloaded + ' Medien');
+                    document.getElementById('progress-stats').textContent = parts.join('  ·  ');
+
+                } else if (wasRunning && d.status !== 'running') {
+                    // Sync just finished
+                    banner.style.display = 'none';
+                    complete.style.display = 'flex';
+
+                    var msg = 'Sync abgeschlossen!';
+                    if (d.last_stats) {
+                        msg += ' ' + (d.last_stats.created || 0) + ' erstellt, ' +
+                               (d.last_stats.updated || 0) + ' aktualisiert, ' +
+                               (d.last_stats.media_downloaded || 0) + ' Medien heruntergeladen.';
+                    }
+                    document.getElementById('sync-complete-message').textContent = msg;
+
+                    wasRunning = false;
+                    clearInterval(pollInterval);
+
+                    // Update the status cards
+                    setTimeout(function() { location.reload(); }, 3000);
+                }
+            }
+
+            // Check immediately and start polling
+            checkProgress();
+            pollInterval = setInterval(checkProgress, 2000);
+        })();
+        </script>
         <?php
     }
 
@@ -751,6 +845,64 @@ class ImmoAdmin_Admin {
                 margin-top: 32px;
             }
             .immoadmin-setup-box .hint a { color: #3b82f6; }
+
+            /* Progress Banner */
+            .immoadmin-progress-banner {
+                background: #eff6ff;
+                border: 1px solid #bfdbfe;
+                border-radius: 12px;
+                padding: 20px 24px;
+                margin-bottom: 16px;
+            }
+            .immoadmin-progress-banner .progress-content {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 12px;
+            }
+            .immoadmin-progress-banner .progress-content .dashicons {
+                color: #3b82f6;
+                font-size: 24px;
+                width: 24px;
+                height: 24px;
+            }
+            .immoadmin-progress-banner .progress-info {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .immoadmin-progress-banner .progress-info strong {
+                color: #1e40af;
+                font-size: 14px;
+            }
+            .immoadmin-progress-banner .progress-info span {
+                color: #3b82f6;
+                font-size: 12px;
+            }
+            .immoadmin-progress-banner .progress-bar-wrap {
+                background: #dbeafe;
+                border-radius: 6px;
+                height: 8px;
+                overflow: hidden;
+            }
+            .immoadmin-progress-banner .progress-bar {
+                background: linear-gradient(90deg, #3b82f6, #2563eb);
+                height: 100%;
+                border-radius: 6px;
+                transition: width 0.5s ease;
+            }
+            .immoadmin-progress-banner .progress-stats {
+                margin-top: 8px;
+                font-size: 12px;
+                color: #64748b;
+                display: flex;
+                gap: 16px;
+            }
+            @keyframes immoadmin-spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            .immoadmin-spin { animation: immoadmin-spin 1s linear infinite; }
 
             /* Responsive */
             @media (max-width: 768px) {
