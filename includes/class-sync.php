@@ -313,15 +313,37 @@ class ImmoAdmin_Sync {
             return $local_url;
         }
 
-        // Download
-        $response = wp_remote_get($url, array(
-            'timeout' => 60,
-            'sslverify' => true,
-            'limit_response_size' => 50 * 1024 * 1024,
-        ));
+        // Download with retry on rate limit (429)
+        $max_retries = 3;
+        $response = null;
 
-        if (is_wp_error($response)) {
-            error_log('ImmoAdmin: Failed to download media: ' . $response->get_error_message() . ' URL: ' . $url);
+        for ($attempt = 0; $attempt < $max_retries; $attempt++) {
+            $response = wp_remote_get($url, array(
+                'timeout' => 60,
+                'sslverify' => true,
+                'limit_response_size' => 50 * 1024 * 1024,
+            ));
+
+            if (is_wp_error($response)) {
+                error_log('ImmoAdmin: Failed to download media: ' . $response->get_error_message() . ' URL: ' . $url);
+                return null;
+            }
+
+            $status_code = wp_remote_retrieve_response_code($response);
+            if ($status_code === 429) {
+                // Rate limited - wait and retry
+                $retry_after = (int) wp_remote_retrieve_header($response, 'retry-after');
+                $wait = max($retry_after, 2 * ($attempt + 1)); // At least 2s, increasing
+                error_log("ImmoAdmin: Rate limited (429), waiting {$wait}s before retry (attempt " . ($attempt + 1) . ")");
+                sleep($wait);
+                continue;
+            }
+
+            break; // Success or non-retryable error
+        }
+
+        if (wp_remote_retrieve_response_code($response) !== 200) {
+            error_log('ImmoAdmin: Media download failed with status ' . wp_remote_retrieve_response_code($response) . ' URL: ' . $url);
             return null;
         }
 
