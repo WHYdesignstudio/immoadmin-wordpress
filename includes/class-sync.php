@@ -255,7 +255,7 @@ class ImmoAdmin_Sync {
                     } elseif (is_string($value)) {
                         update_post_meta($post_id, $key, sanitize_text_field($value));
                     } elseif (is_null($value)) {
-                        delete_post_meta($post_id, $key);
+                        update_post_meta($post_id, $key, '');
                     }
                 }
             }
