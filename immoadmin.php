@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.0.5
+ * Version: 2.0.6
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
