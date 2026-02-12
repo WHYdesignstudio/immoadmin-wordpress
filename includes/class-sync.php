@@ -13,6 +13,28 @@ if (!defined('ABSPATH')) {
 class ImmoAdmin_Sync {
 
     /**
+     * Run sync in background (called via WP Cron)
+     * No time limit, keeps running even if connection drops
+     */
+    public static function run_background($json_file = null) {
+        // Remove PHP time limit - we may need to download hundreds of files
+        @set_time_limit(0);
+        @ignore_user_abort(true);
+
+        // Increase memory limit for large syncs
+        @ini_set('memory_limit', '512M');
+
+        update_option('immoadmin_sync_status', 'running');
+
+        $result = self::run($json_file);
+
+        update_option('immoadmin_sync_status', $result['success'] ? 'completed' : 'error');
+        update_option('immoadmin_last_sync_result', $result);
+
+        return $result;
+    }
+
+    /**
      * Run sync from JSON file
      */
     public static function run($json_file = null) {
@@ -449,6 +471,7 @@ class ImmoAdmin_Sync {
             'building_count' => !empty($json_data['buildings']) ? count($json_data['buildings']) : 0,
             'last_sync' => get_option('immoadmin_last_sync'),
             'last_stats' => get_option('immoadmin_last_sync_stats'),
+            'sync_status' => get_option('immoadmin_sync_status', 'idle'),
             'webhook_token' => get_option('immoadmin_webhook_token_masked', ''),
             'webhook_configured' => !empty(get_option('immoadmin_webhook_token_hash')),
         );

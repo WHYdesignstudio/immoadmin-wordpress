@@ -130,6 +130,7 @@ class ImmoAdmin_Webhook {
 
     /**
      * Handle sync webhook
+     * Saves JSON and schedules background sync (returns immediately)
      */
     public static function handle_sync($request) {
         // Mark connection as verified (token was correct)
@@ -173,29 +174,36 @@ class ImmoAdmin_Webhook {
                     ), 500);
                 }
 
-                // Now run sync with the saved file
-                $result = ImmoAdmin_Sync::run($json_file);
+                // Schedule background sync (runs immediately via WP Cron)
+                // Clear any previously scheduled sync first
+                wp_clear_scheduled_hook('immoadmin_background_sync');
+                wp_schedule_single_event(time(), 'immoadmin_background_sync', array($json_file));
+
+                // Try to spawn the cron immediately
+                spawn_cron();
+
+                update_option('immoadmin_sync_status', 'running');
 
                 return new WP_REST_Response(array(
-                    'success' => $result['success'],
-                    'message' => $result['success'] ? 'Sync erfolgreich' : ($result['error'] ?? 'Sync fehlgeschlagen'),
-                    'stats'   => $result['stats'] ?? null,
-                    'duration' => $result['duration'] ?? null,
-                    'method'  => 'direct',
-                ), $result['success'] ? 200 : 500);
+                    'success' => true,
+                    'message' => 'Sync gestartet (Hintergrund)',
+                    'method'  => 'background',
+                ), 200);
             }
         }
 
         // Fallback: Run sync with existing local file (old FTP method)
-        $result = ImmoAdmin_Sync::run();
+        wp_clear_scheduled_hook('immoadmin_background_sync');
+        wp_schedule_single_event(time(), 'immoadmin_background_sync');
+        spawn_cron();
+
+        update_option('immoadmin_sync_status', 'running');
 
         return new WP_REST_Response(array(
-            'success' => $result['success'],
-            'message' => $result['success'] ? 'Sync erfolgreich' : ($result['error'] ?? 'Sync fehlgeschlagen'),
-            'stats'   => $result['stats'] ?? null,
-            'duration' => $result['duration'] ?? null,
-            'method'  => 'file',
-        ), $result['success'] ? 200 : 500);
+            'success' => true,
+            'message' => 'Sync gestartet (Hintergrund)',
+            'method'  => 'background',
+        ), 200);
     }
 
     /**
