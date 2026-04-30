@@ -77,6 +77,7 @@ class ImmoAdmin_Sync {
             'deleted' => 0,
             'skipped' => 0,
             'media_downloaded' => 0,
+            'media_deleted' => 0,
             'errors' => array(),
         );
 
@@ -126,6 +127,9 @@ class ImmoAdmin_Sync {
                 $stats['deleted']++;
             }
         }
+
+        // Clean up orphaned media files (files in /immoadmin/media/ no longer referenced by any unit)
+        $stats['media_deleted'] = self::cleanup_orphan_media();
 
         // Log sync
         $duration = round(microtime(true) - $start_time, 2);
@@ -300,6 +304,81 @@ class ImmoAdmin_Sync {
              )",
             $post_id
         ));
+    }
+
+    /**
+     * Delete orphaned media files - files in IMMOADMIN_MEDIA_DIR that are
+     * no longer referenced by any unit's image_N / floor_plan_N / document_N_url meta.
+     *
+     * Defensive: any failure is logged but never breaks the sync. Returns deleted count.
+     */
+    private static function cleanup_orphan_media() {
+        $deleted = 0;
+
+        try {
+            global $wpdb;
+
+            // Build set of currently referenced media URLs across all units
+            $referenced_urls = $wpdb->get_col("
+                SELECT DISTINCT pm.meta_value
+                FROM {$wpdb->postmeta} pm
+                INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
+                WHERE p.post_type = 'immoadmin_wohnung'
+                  AND p.post_status != 'trash'
+                  AND (
+                      pm.meta_key REGEXP '^image_[0-9]+$'
+                      OR pm.meta_key REGEXP '^floor_plan_[0-9]+$'
+                      OR pm.meta_key REGEXP '^document_[0-9]+_url$'
+                  )
+                  AND pm.meta_value != ''
+            ");
+
+            // Index by basename for O(1) lookups during the file scan
+            $referenced = array();
+            if (!empty($referenced_urls)) {
+                foreach ($referenced_urls as $url) {
+                    $filename = basename(parse_url($url, PHP_URL_PATH));
+                    if (!empty($filename)) {
+                        $referenced[$filename] = true;
+                    }
+                }
+            }
+
+            if (!is_dir(IMMOADMIN_MEDIA_DIR)) {
+                return 0;
+            }
+
+            $files = glob(IMMOADMIN_MEDIA_DIR . '*');
+            if ($files === false || empty($files)) {
+                return 0;
+            }
+
+            foreach ($files as $path) {
+                if (!is_file($path)) {
+                    continue;
+                }
+
+                $filename = basename($path);
+
+                // Skip system/hidden files (.htaccess, .DS_Store, ...)
+                if (strpos($filename, '.') === 0) {
+                    continue;
+                }
+
+                if (!isset($referenced[$filename])) {
+                    if (@unlink($path)) {
+                        $deleted++;
+                        error_log('ImmoAdmin: Deleted orphan media file: ' . $filename);
+                    } else {
+                        error_log('ImmoAdmin: Failed to delete orphan media file: ' . $filename);
+                    }
+                }
+            }
+        } catch (Exception $e) {
+            error_log('ImmoAdmin: cleanup_orphan_media error: ' . $e->getMessage());
+        }
+
+        return (int) $deleted;
     }
 
     /**

@@ -220,6 +220,9 @@ class ImmoAdmin_Admin {
                                     <?php if ($entry['stats']['media_downloaded'] > 0): ?>
                                         <span class="media">📷 <?php echo esc_html($entry['stats']['media_downloaded']); ?> Medien</span>
                                     <?php endif; ?>
+                                    <?php if (!empty($entry['stats']['media_deleted'])): ?>
+                                        <span class="media-deleted">🗑️ <?php echo esc_html($entry['stats']['media_deleted']); ?> aufgeräumt</span>
+                                    <?php endif; ?>
                                 </div>
                                 <?php if (!empty($entry['stats']['errors'])): ?>
                                     <div style="color: #dc2626; margin-top: 8px; font-size: 12px;">
@@ -327,6 +330,7 @@ class ImmoAdmin_Admin {
                     if (stats.updated > 0) parts.push('↻' + stats.updated + ' aktualisiert');
                     if (stats.skipped > 0) parts.push(stats.skipped + ' übersprungen');
                     if (stats.media_downloaded > 0) parts.push('📷 ' + stats.media_downloaded + ' Medien');
+                    if (stats.media_deleted > 0) parts.push('🗑️ ' + stats.media_deleted + ' aufgeräumt');
                     document.getElementById('progress-stats').textContent = parts.join('  ·  ');
 
                 } else if (wasRunning && d.status !== 'running') {
@@ -339,6 +343,9 @@ class ImmoAdmin_Admin {
                         msg += ' ' + (d.last_stats.created || 0) + ' erstellt, ' +
                                (d.last_stats.updated || 0) + ' aktualisiert, ' +
                                (d.last_stats.media_downloaded || 0) + ' Medien heruntergeladen.';
+                        if (d.last_stats.media_deleted > 0) {
+                            msg += ' ' + d.last_stats.media_deleted + ' Medien aufgeräumt.';
+                        }
                     }
                     document.getElementById('sync-complete-message').textContent = msg;
 
@@ -676,6 +683,7 @@ class ImmoAdmin_Admin {
             .immoadmin-log-entry .stats .updated { color: #3b82f6; }
             .immoadmin-log-entry .stats .deleted { color: #dc2626; }
             .immoadmin-log-entry .stats .media { color: #8b5cf6; }
+            .immoadmin-log-entry .stats .media-deleted { color: #64748b; }
 
             /* Token Input */
             .immoadmin-token {
