@@ -177,32 +177,17 @@
         document.querySelectorAll('[data-element="immoadmin-units-table"]').forEach(initImmoUnitsTable);
     }
 
-    // Use BricksFunction wrapper if available (preferred — handles AJAX re-init).
-    if (typeof window.BricksFunction === 'function') {
-        // eslint-disable-next-line no-new
-        new window.BricksFunction({
-            parentNode: document,
-            selector: '[data-element="immoadmin-units-table"]',
-            frontEndOnly: true,
-            subscribeEvents: [
-                'bricks/ajax/query_result/displayed',
-                'bricks/ajax/pagination/completed',
-                'bricks/ajax/load_page/completed',
-                'bricks/ajax/popup/loaded'
-            ],
-            eachElement: initImmoUnitsTable
-        });
+    // Bootstrap. initImmoUnitsTable is idempotent (dataset.immoBound flag) so
+    // we can re-run on every Bricks AJAX swap without harm.
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initAll);
     } else {
-        // Fallback bootstrap.
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initAll);
-        } else {
-            initAll();
-        }
-        document.addEventListener('bricks/ajax/query_result/displayed', initAll);
-        document.addEventListener('bricks/ajax/pagination/completed', initAll);
-        document.addEventListener('bricks/ajax/load_page/completed', initAll);
+        initAll();
     }
+    document.addEventListener('bricks/ajax/query_result/displayed', initAll);
+    document.addEventListener('bricks/ajax/pagination/completed', initAll);
+    document.addEventListener('bricks/ajax/load_page/completed', initAll);
+    document.addEventListener('bricks/ajax/popup/loaded', initAll);
 
     // Expose handler name for Bricks $scripts auto-init.
     window.bricksUnitsTableInit = initAll;

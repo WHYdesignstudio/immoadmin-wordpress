@@ -120,11 +120,11 @@
     }
 
     /* Content panel — collapsed by default, revealed when row has .brx-open
-     * (state class set on .accordion-title-wrapper by our JS). The panel is the
-     * NEXT sibling. Since rows use display:contents we must scope to the
-     * accordion-item parent that does NOT use display:contents inside @layer.
+     * (state class set on .accordion-title-wrapper by our JS). Uses our own
+     * unique class so it doesn't conflict with any .accordion-content-wrapper
+     * a user happens to nest inside (legacy default Block, etc).
      */
-    :where(.brxe-immoadmin-units-table) .accordion-content-wrapper {
+    :where(.brxe-immoadmin-units-table) .immoadmin-accordion-panel {
         grid-column: 1 / -1;
         overflow: hidden;
         max-height: 0;
@@ -132,7 +132,7 @@
         transition: max-height 0.25s ease, opacity 0.2s ease;
         border-bottom: var(--iat-border);
     }
-    :where(.brxe-immoadmin-units-table) .accordion-title-wrapper.brx-open + .accordion-content-wrapper {
+    :where(.brxe-immoadmin-units-table) .accordion-title-wrapper.brx-open + .immoadmin-accordion-panel {
         max-height: 4000px;
         opacity: 1;
     }

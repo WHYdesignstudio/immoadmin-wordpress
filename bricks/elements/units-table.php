@@ -419,7 +419,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'label' => esc_html__('Akkordion-Body-Hintergrund', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
-                ['property' => 'background-color', 'selector' => '.accordion-content-wrapper'],
+                ['property' => 'background-color', 'selector' => '.immoadmin-accordion-panel'],
             ],
         ];
     }
@@ -457,9 +457,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         return [
             'name'     => 'block',
             'label'    => esc_html__('Detail', 'immoadmin'),
-            'settings' => [
-                '_hidden' => ['_cssClasses' => 'accordion-content-wrapper'],
-            ],
+            'settings' => [],
             'children' => [
                 [
                     'name'     => 'text',
@@ -570,10 +568,11 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // Tag this render so the loop callback can pull instance config without
         // relying on $this (the callback runs as a static method).
         $GLOBALS['immoadmin_units_table_render_context'] = [
-            'columns'         => $columns,
-            'mode'            => $mode,
-            'status_handling' => $status_handling,
-            'element_id'      => $this->id,
+            'columns'          => $columns,
+            'mode'             => $mode,
+            'status_handling'  => $status_handling,
+            'element_id'       => $this->id,
+            'element_instance' => $this,
         ];
 
         $query_obj = new \Bricks\Query($element);
@@ -626,10 +625,11 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ? $GLOBALS['immoadmin_units_table_render_context']
             : [];
 
-        $columns         = $ctx['columns'] ?? [];
-        $mode            = $ctx['mode'] ?? 'accordion';
-        $status_handling = $ctx['status_handling'] ?? 'show';
-        $element_id      = $ctx['element_id'] ?? '';
+        $columns          = $ctx['columns'] ?? [];
+        $mode             = $ctx['mode'] ?? 'accordion';
+        $status_handling  = $ctx['status_handling'] ?? 'show';
+        $element_id       = $ctx['element_id'] ?? '';
+        $element_instance = $ctx['element_instance'] ?? null;
 
         $post_id = get_the_ID();
         $status  = (string) get_post_meta($post_id, 'status', true);
@@ -694,11 +694,11 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             // styling class via _hidden._cssClasses (see get_nestable_item()).
             // For loop-iteration rendering, Frontend::render_children must be
             // called via the element wrapper.
-            $output .= '<div class="accordion-content-wrapper" role="region"'
+            $output .= '<div class="immoadmin-accordion-panel" role="region"'
                 . ' id="' . esc_attr($content_id) . '"'
                 . ' aria-labelledby="' . esc_attr($title_id) . '"'
                 . '>';
-            $output .= self::render_accordion_children($element);
+            $output .= self::render_accordion_children($element_instance);
             $output .= '</div>';
 
             $output .= '</div>'; // .accordion-item
@@ -711,20 +711,15 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
      * Render accordion-body children for the current loop iteration.
      * Falls back to a placeholder string in builder context.
      */
-    private static function render_accordion_children($element_object) {
-        if (!class_exists('\\Bricks\\Frontend')) {
+    private static function render_accordion_children($element_instance) {
+        // Frontend::render_children expects the Element OBJECT (not array) — it
+        // accesses ->element and ->is_frontend on it. Passing the loop's
+        // element array triggers PHP warnings.
+        if (!$element_instance || !class_exists('\\Bricks\\Frontend')) {
             return '';
         }
 
-        // Frontend::render_children expects an element array with `children` ids.
-        // During a query loop Bricks already provides `looped = true` context;
-        // children are resolved against the post's element tree.
-        if (empty($element_object['children'])) {
-            return '';
-        }
-
-        // Pass through to Bricks. It iterates child IDs and renders each.
-        return \Bricks\Frontend::render_children($element_object, 'div');
+        return \Bricks\Frontend::render_children($element_instance, 'div');
     }
 
     /**
