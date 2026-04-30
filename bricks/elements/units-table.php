@@ -350,6 +350,23 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ],
         ];
 
+        $this->controls['dot_size'] = [
+            'tab'         => 'content',
+            'group'       => 'status_colors',
+            'label'       => esc_html__('Punkt-Größe', 'immoadmin'),
+            'type'        => 'number',
+            'units'       => true,
+            'min'         => 1,
+            'placeholder' => '0.75em',
+            'info'        => esc_html__('Nur für Status-Punkt. Beispiel: 8px, 0.5em, 1rem.', 'immoadmin'),
+            'css'         => [
+                [
+                    'property' => '--iat-dot-size',
+                    'selector' => '',
+                ],
+            ],
+        ];
+
         // ---------- Style ----------
         $this->controls['header_typography'] = [
             'tab'   => 'style',

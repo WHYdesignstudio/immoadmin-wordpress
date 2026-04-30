@@ -188,8 +188,8 @@
     /* Status dot — just a colored circle, no text. Color via .is-{status} */
     :where(.brxe-immoadmin-units-table) .immoadmin-status-dot {
         display: inline-block;
-        width: 0.75em;
-        height: 0.75em;
+        width: var(--iat-dot-size, 0.75em);
+        height: var(--iat-dot-size, 0.75em);
         border-radius: 50%;
         background-color: var(--iat-color-available);
         vertical-align: middle;
