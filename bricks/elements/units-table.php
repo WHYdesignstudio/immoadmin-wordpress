@@ -519,7 +519,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // (e.g. status dot), all others share the remaining 1fr equally.
         $tracks = [];
         foreach ($columns as $col) {
-            $tracks[] = !empty($col['compact']) ? 'min-content' : 'minmax(min-content, 1fr)';
+            $tracks[] = !empty($col['compact']) ? 'max-content' : 'minmax(min-content, 1fr)';
         }
         $grid_template = !empty($tracks) ? implode(' ', $tracks) : 'minmax(min-content, 1fr)';
         $this->set_attribute('_root', 'style', '--iat-grid-cols: ' . $grid_template . '; --iat-cols: ' . max(1, count($columns)));
