@@ -71,6 +71,16 @@ class ImmoAdmin_Admin {
             update_option('immoadmin_sync_status', 'running');
         }
 
+        // Handle Bricks integration toggle save
+        if (isset($_POST['immoadmin_save_bricks']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_save_bricks')) {
+            $enabled = !empty($_POST['immoadmin_bricks_enabled']);
+            update_option('immoadmin_bricks_enabled', $enabled ? 1 : 0);
+            $bricks_message = $enabled
+                ? 'Bricks-Integration aktiviert. Bitte Bricks → Einstellungen → CSS-Dateien neu generieren.'
+                : 'Bricks-Integration deaktiviert.';
+            $bricks_success = true;
+        }
+
         // Handle manual sync (run in background so progress is tracked)
         if (isset($_POST['immoadmin_sync']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_sync')) {
             wp_clear_scheduled_hook('immoadmin_background_sync');
@@ -123,6 +133,13 @@ class ImmoAdmin_Admin {
                 <div class="immoadmin-notice <?php echo $cleanup_success ? 'success' : 'error'; ?>">
                     <span class="dashicons <?php echo $cleanup_success ? 'dashicons-yes-alt' : 'dashicons-warning'; ?>"></span>
                     <?php echo esc_html($cleanup_message); ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if (isset($bricks_message)): ?>
+                <div class="immoadmin-notice <?php echo $bricks_success ? 'success' : 'error'; ?>">
+                    <span class="dashicons <?php echo $bricks_success ? 'dashicons-yes-alt' : 'dashicons-warning'; ?>"></span>
+                    <?php echo esc_html($bricks_message); ?>
                 </div>
             <?php endif; ?>
 
@@ -274,6 +291,33 @@ class ImmoAdmin_Admin {
                         Bereinigen &amp; Re-Sync
                     </button>
                 </form>
+
+                <h4 style="margin-top: 24px;">Bricks-Integration</h4>
+                <?php $bricks_active = defined('BRICKS_VERSION'); ?>
+                <?php if ($bricks_active): ?>
+                    <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">
+                        Aktiviert das Bricks-Builder-Element <strong>ImmoAdmin Units Table</strong>.
+                    </p>
+                    <form method="post" style="display: inline;">
+                        <?php wp_nonce_field('immoadmin_save_bricks'); ?>
+                        <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input
+                                type="checkbox"
+                                name="immoadmin_bricks_enabled"
+                                value="1"
+                                <?php checked(get_option('immoadmin_bricks_enabled'), 1); ?>
+                            />
+                            <span>Bricks-Integration aktivieren</span>
+                        </label>
+                        <button type="submit" name="immoadmin_save_bricks" class="immoadmin-btn immoadmin-btn-secondary" style="margin-left: 12px;">
+                            Speichern
+                        </button>
+                    </form>
+                <?php else: ?>
+                    <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">
+                        Bricks-Theme nicht installiert &mdash; Integration nicht verfügbar.
+                    </p>
+                <?php endif; ?>
 
                 <h4 style="margin-top: 24px;">Verbindung trennen</h4>
                 <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">Token entfernen und Plugin zurücksetzen.</p>

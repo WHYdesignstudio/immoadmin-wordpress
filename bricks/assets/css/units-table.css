@@ -1,0 +1,214 @@
+/*
+ * ImmoAdmin Units Table — Bricks Element
+ *
+ * Wrapped in @layer bricks so user/theme CSS outside the layer wins
+ * automatically. :where() keeps specificity at zero so designers can
+ * override anything via Bricks design controls.
+ */
+@layer bricks {
+
+    :where(.brxe-immoadmin-units-table) {
+        --iat-cols: 1;
+        --iat-row-padding: 12px 16px;
+        --iat-border: 1px solid var(--bricks-border-color, #dddedf);
+        --iat-color-available: #10b981;
+        --iat-color-reserved: #f59e0b;
+        --iat-color-sold: #ef4444;
+        --iat-transition: var(--bricks-transition, all 0.2s ease);
+        display: block;
+        width: 100%;
+    }
+
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    :where(.brxe-immoadmin-units-table) .immoadmin-table {
+        display: grid;
+        grid-template-columns: repeat(var(--iat-cols, 1), minmax(min-content, 1fr));
+        width: 100%;
+    }
+
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-header,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-row,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-empty {
+        display: contents;
+    }
+
+    /* Cells */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell {
+        padding: var(--iat-row-padding);
+        border-bottom: var(--iat-border);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        word-break: break-word;
+    }
+
+    :where(.brxe-immoadmin-units-table) [data-align="left"] {
+        justify-content: flex-start;
+        text-align: left;
+    }
+    :where(.brxe-immoadmin-units-table) [data-align="center"] {
+        justify-content: center;
+        text-align: center;
+    }
+    :where(.brxe-immoadmin-units-table) [data-align="right"] {
+        justify-content: flex-end;
+        text-align: right;
+    }
+
+    /* Header */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header {
+        font-weight: 600;
+        background-color: transparent;
+        cursor: default;
+        user-select: none;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header[data-sortable="1"] {
+        cursor: pointer;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header[data-sortable="1"]:hover .immoadmin-sort-icon {
+        opacity: 1;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: -2px;
+    }
+
+    /* Sort indicator */
+    :where(.brxe-immoadmin-units-table) .immoadmin-sort-icon {
+        display: inline-block;
+        width: 0;
+        height: 0;
+        margin-left: 4px;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 5px solid currentColor;
+        opacity: 0.4;
+        transition: var(--iat-transition);
+    }
+    :where(.brxe-immoadmin-units-table) [data-sort-direction="asc"] .immoadmin-sort-icon {
+        border-top: 0;
+        border-bottom: 5px solid currentColor;
+        opacity: 1;
+    }
+    :where(.brxe-immoadmin-units-table) [data-sort-direction="desc"] .immoadmin-sort-icon {
+        opacity: 1;
+    }
+
+    /* Row */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-row {
+        transition: var(--iat-transition);
+    }
+
+    /* Accordion-mode rowgroup wraps row + content panel */
+    :where(.brxe-immoadmin-units-table) .accordion-item {
+        display: contents;
+    }
+
+    /* Title wrapper (the row in accordion mode) becomes clickable */
+    :where(.brxe-immoadmin-units-table) .accordion-title-wrapper {
+        cursor: pointer;
+    }
+    :where(.brxe-immoadmin-units-table) .accordion-title-wrapper:focus-visible .immoadmin-table-cell:first-child {
+        outline: 2px solid currentColor;
+        outline-offset: -2px;
+    }
+
+    /* Content panel — collapsed by default, revealed when row has .brx-open
+     * (state class set on .accordion-title-wrapper by our JS). The panel is the
+     * NEXT sibling. Since rows use display:contents we must scope to the
+     * accordion-item parent that does NOT use display:contents inside @layer.
+     */
+    :where(.brxe-immoadmin-units-table) .accordion-content-wrapper {
+        grid-column: 1 / -1;
+        overflow: hidden;
+        max-height: 0;
+        opacity: 0;
+        transition: max-height 0.25s ease, opacity 0.2s ease;
+        border-bottom: var(--iat-border);
+    }
+    :where(.brxe-immoadmin-units-table) .accordion-title-wrapper.brx-open + .accordion-content-wrapper {
+        max-height: 4000px;
+        opacity: 1;
+    }
+
+    /* Status modifiers (designer-targetable) */
+    :where(.brxe-immoadmin-units-table) .is-available {}
+    :where(.brxe-immoadmin-units-table) .is-reserved {}
+    :where(.brxe-immoadmin-units-table) .is-sold {}
+
+    :where(.brxe-immoadmin-units-table) .is-dimmed {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+
+    :where(.brxe-immoadmin-units-table) .is-highlighted .immoadmin-table-cell {
+        background-color: rgba(255, 214, 79, 0.18);
+    }
+
+    /* Status badge */
+    :where(.brxe-immoadmin-units-table) .immoadmin-status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2em 0.6em;
+        border-radius: var(--bricks-border-radius, 4px);
+        font-size: 0.85em;
+        font-weight: 600;
+        line-height: 1;
+        background-color: var(--iat-color-available);
+        color: #fff;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-available {
+        background-color: var(--iat-color-available);
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-reserved {
+        background-color: var(--iat-color-reserved);
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-sold {
+        background-color: var(--iat-color-sold);
+    }
+
+    /* Image cell */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-image {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        border-radius: var(--bricks-border-radius, 4px);
+    }
+
+    /* Link cell */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-link {
+        color: inherit;
+        text-decoration: underline;
+    }
+
+    /* Empty state */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-empty .immoadmin-table-cell {
+        grid-column: 1 / -1;
+        text-align: center;
+        color: var(--bricks-text-medium, #616161);
+        padding: 24px 16px;
+    }
+
+    /* Mobile breakpoints — Bricks default scale (max-width 767/1024). */
+    @media (max-width: 1024px) {
+        :where(.brxe-immoadmin-units-table) .immoadmin-table {
+            font-size: 14px;
+        }
+    }
+
+    @media (max-width: 767px) {
+        :where(.brxe-immoadmin-units-table) [data-mobile-visible="0"] {
+            display: none !important;
+        }
+        :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header,
+        :where(.brxe-immoadmin-units-table) .immoadmin-table-cell {
+            padding: 8px 10px;
+        }
+    }
+}

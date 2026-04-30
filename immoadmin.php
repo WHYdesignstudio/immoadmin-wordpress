@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.2.0
+ * Version: 2.3.0
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.2.0');
+define('IMMOADMIN_VERSION', '2.3.0');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -215,3 +215,27 @@ class ImmoAdmin {
 
 // Initialize plugin
 ImmoAdmin::get_instance();
+
+/**
+ * Bricks Builder integration — register the "ImmoAdmin Units Table" element.
+ *
+ * Priority 11 ensures Bricks' own init_elements() (priority 10) has already
+ * loaded the abstract \Bricks\Element base class.
+ */
+add_action('init', function () {
+    if (!defined('BRICKS_VERSION')) {
+        return;
+    }
+    if (!class_exists('\\Bricks\\Elements')) {
+        return;
+    }
+    if (!get_option('immoadmin_bricks_enabled')) {
+        return;
+    }
+
+    \Bricks\Elements::register_element(
+        IMMOADMIN_PLUGIN_DIR . 'bricks/elements/units-table.php',
+        'immoadmin-units-table',
+        'ImmoAdmin_Units_Table'
+    );
+}, 11);
