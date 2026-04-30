@@ -163,7 +163,8 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                         'text'          => esc_html__('Text', 'immoadmin'),
                         'link'          => esc_html__('Link', 'immoadmin'),
                         'image'         => esc_html__('Bild', 'immoadmin'),
-                        'status_badge'  => esc_html__('Status-Badge', 'immoadmin'),
+                        'status_badge'  => esc_html__('Status-Badge (Pille mit Text)', 'immoadmin'),
+                        'status_dot'    => esc_html__('Status-Punkt (nur Farbe)', 'immoadmin'),
                         'html'          => esc_html__('HTML', 'immoadmin'),
                     ],
                     'default'   => 'text',
@@ -791,6 +792,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                 $status_class = sanitize_html_class($resolved);
                 $inner = '<span class="immoadmin-status-badge is-' . esc_attr($status_class) .
                     '">' . esc_html($resolved) . '</span>';
+                break;
+
+            case 'status_dot':
+                $status_class = sanitize_html_class($resolved);
+                $inner = '<span class="immoadmin-status-dot is-' . esc_attr($status_class) .
+                    '" aria-label="' . esc_attr($resolved) . '" title="' . esc_attr($resolved) . '"></span>';
                 break;
 
             case 'html':
