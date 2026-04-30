@@ -86,8 +86,20 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'tab'   => 'content',
         ];
 
-        $this->control_groups['table_style'] = [
-            'title' => esc_html__('Tabelle Stil', 'immoadmin'),
+        $this->control_groups['style_header'] = [
+            'title' => esc_html__('Kopfzeile', 'immoadmin'),
+            'tab'   => 'style',
+        ];
+        $this->control_groups['style_rows'] = [
+            'title' => esc_html__('Zeilen', 'immoadmin'),
+            'tab'   => 'style',
+        ];
+        $this->control_groups['style_accordion'] = [
+            'title' => esc_html__('Akkordion', 'immoadmin'),
+            'tab'   => 'style',
+        ];
+        $this->control_groups['style_table'] = [
+            'title' => esc_html__('Tabelle allgemein', 'immoadmin'),
             'tab'   => 'style',
         ];
     }
@@ -367,11 +379,11 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ],
         ];
 
-        // ---------- Style ----------
+        // ========== Style: Kopfzeile ==========
         $this->controls['header_typography'] = [
             'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Kopfzeilen-Typografie', 'immoadmin'),
+            'group' => 'style_header',
+            'label' => esc_html__('Typografie', 'immoadmin'),
             'type'  => 'typography',
             'css'   => [
                 ['property' => 'font', 'selector' => '.immoadmin-table-cell-header'],
@@ -380,71 +392,217 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['header_background'] = [
             'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Kopfzeilen-Hintergrund', 'immoadmin'),
+            'group' => 'style_header',
+            'label' => esc_html__('Hintergrund', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
-                ['property' => 'background-color', 'selector' => '.immoadmin-table-header'],
+                ['property' => 'background-color', 'selector' => '.immoadmin-table-cell-header'],
             ],
         ];
 
+        $this->controls['header_padding'] = [
+            'tab'   => 'style',
+            'group' => 'style_header',
+            'label' => esc_html__('Padding', 'immoadmin'),
+            'type'  => 'spacing',
+            'css'   => [
+                ['property' => 'padding', 'selector' => '.immoadmin-table-cell-header'],
+            ],
+        ];
+
+        $this->controls['header_border'] = [
+            'tab'   => 'style',
+            'group' => 'style_header',
+            'label' => esc_html__('Border', 'immoadmin'),
+            'type'  => 'border',
+            'css'   => [
+                ['property' => 'border', 'selector' => '.immoadmin-table-cell-header'],
+            ],
+        ];
+
+        // ========== Style: Zeilen ==========
         $this->controls['row_typography'] = [
             'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Zeilen-Typografie', 'immoadmin'),
+            'group' => 'style_rows',
+            'label' => esc_html__('Typografie', 'immoadmin'),
             'type'  => 'typography',
             'css'   => [
-                ['property' => 'font', 'selector' => '.immoadmin-table-row'],
+                ['property' => 'font', 'selector' => '.immoadmin-table-cell'],
             ],
         ];
 
         $this->controls['row_background'] = [
             'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Zeilen-Hintergrund', 'immoadmin'),
+            'group' => 'style_rows',
+            'label' => esc_html__('Hintergrund', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
-                ['property' => 'background-color', 'selector' => '.immoadmin-table-row'],
+                ['property' => 'background-color', 'selector' => '.immoadmin-table-row .immoadmin-table-cell'],
             ],
         ];
 
         $this->controls['row_alternate_background'] = [
             'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Zebra-Streifen', 'immoadmin'),
+            'group' => 'style_rows',
+            'label' => esc_html__('Zebra-Streifen (gerade Zeilen)', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
-                ['property' => 'background-color', 'selector' => '.immoadmin-table-row:nth-child(even)'],
+                ['property' => 'background-color', 'selector' => '.accordion-item:nth-of-type(even) .immoadmin-table-cell'],
             ],
         ];
 
-        $this->controls['row_border'] = [
+        $this->controls['row_hover_background'] = [
             'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Zeilen-Border', 'immoadmin'),
-            'type'  => 'border',
+            'group' => 'style_rows',
+            'label' => esc_html__('Hover-Hintergrund', 'immoadmin'),
+            'type'  => 'color',
             'css'   => [
-                ['property' => 'border', 'selector' => '.immoadmin-table-row'],
+                ['property' => 'background-color', 'selector' => '.accordion-item:hover .immoadmin-table-cell'],
+            ],
+        ];
+
+        $this->controls['row_open_background'] = [
+            'tab'   => 'style',
+            'group' => 'style_rows',
+            'label' => esc_html__('Aktive Zeile (offen)', 'immoadmin'),
+            'type'  => 'color',
+            'css'   => [
+                ['property' => 'background-color', 'selector' => '.accordion-title-wrapper.brx-open .immoadmin-table-cell'],
             ],
         ];
 
         $this->controls['row_padding'] = [
             'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Zellen-Padding', 'immoadmin'),
+            'group' => 'style_rows',
+            'label' => esc_html__('Zell-Padding', 'immoadmin'),
             'type'  => 'spacing',
             'css'   => [
-                ['property' => 'padding', 'selector' => '.immoadmin-table-cell, .immoadmin-table-cell-header'],
+                ['property' => 'padding', 'selector' => '.immoadmin-table-cell'],
             ],
         ];
 
+        $this->controls['row_min_height'] = [
+            'tab'   => 'style',
+            'group' => 'style_rows',
+            'label' => esc_html__('Mindesthöhe', 'immoadmin'),
+            'type'  => 'number',
+            'units' => true,
+            'placeholder' => '0',
+            'css'   => [
+                ['property' => 'min-height', 'selector' => '.immoadmin-table-cell'],
+            ],
+        ];
+
+        $this->controls['row_border'] = [
+            'tab'   => 'style',
+            'group' => 'style_rows',
+            'label' => esc_html__('Trennlinie zwischen Zeilen', 'immoadmin'),
+            'type'  => 'border',
+            'css'   => [
+                ['property' => 'border-bottom', 'selector' => '.immoadmin-table-cell'],
+            ],
+        ];
+
+        // ========== Style: Akkordion ==========
         $this->controls['accordion_body_background'] = [
             'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Akkordion-Body-Hintergrund', 'immoadmin'),
+            'group' => 'style_accordion',
+            'label' => esc_html__('Body-Hintergrund', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
                 ['property' => 'background-color', 'selector' => '.immoadmin-accordion-panel'],
+            ],
+        ];
+
+        $this->controls['accordion_body_padding'] = [
+            'tab'   => 'style',
+            'group' => 'style_accordion',
+            'label' => esc_html__('Body-Padding', 'immoadmin'),
+            'type'  => 'spacing',
+            'css'   => [
+                ['property' => 'padding', 'selector' => '.immoadmin-accordion-panel'],
+            ],
+        ];
+
+        $this->controls['accordion_body_border'] = [
+            'tab'   => 'style',
+            'group' => 'style_accordion',
+            'label' => esc_html__('Body-Border', 'immoadmin'),
+            'type'  => 'border',
+            'css'   => [
+                ['property' => 'border', 'selector' => '.immoadmin-accordion-panel'],
+            ],
+        ];
+
+        $this->controls['accordion_max_height'] = [
+            'tab'         => 'style',
+            'group'       => 'style_accordion',
+            'label'       => esc_html__('Max-Höhe (offen)', 'immoadmin'),
+            'type'        => 'number',
+            'units'       => true,
+            'placeholder' => '4000px',
+            'info'        => esc_html__('Falls Inhalt höher als 4000px wird, hier hochsetzen.', 'immoadmin'),
+            'css'         => [
+                ['property' => '--iat-accordion-max-height', 'selector' => ''],
+            ],
+        ];
+
+        $this->controls['accordion_transition'] = [
+            'tab'         => 'style',
+            'group'       => 'style_accordion',
+            'label'       => esc_html__('Animation-Dauer', 'immoadmin'),
+            'type'        => 'number',
+            'units'       => true,
+            'placeholder' => '0.25s',
+            'info'        => esc_html__('CSS-Transition (Sekunden). Beispiel: 0.25s, 400ms.', 'immoadmin'),
+            'css'         => [
+                ['property' => '--iat-accordion-transition', 'selector' => ''],
+            ],
+        ];
+
+        // ========== Style: Tabelle allgemein ==========
+        $this->controls['table_column_gap'] = [
+            'tab'   => 'style',
+            'group' => 'style_table',
+            'label' => esc_html__('Spalten-Abstand', 'immoadmin'),
+            'type'  => 'number',
+            'units' => true,
+            'placeholder' => '0',
+            'css'   => [
+                ['property' => 'column-gap', 'selector' => '.immoadmin-table'],
+            ],
+        ];
+
+        $this->controls['table_border'] = [
+            'tab'   => 'style',
+            'group' => 'style_table',
+            'label' => esc_html__('Tabellen-Border', 'immoadmin'),
+            'type'  => 'border',
+            'css'   => [
+                ['property' => 'border', 'selector' => '.immoadmin-table'],
+            ],
+        ];
+
+        $this->controls['table_border_radius'] = [
+            'tab'   => 'style',
+            'group' => 'style_table',
+            'label' => esc_html__('Border-Radius', 'immoadmin'),
+            'type'  => 'number',
+            'units' => true,
+            'placeholder' => '0',
+            'css'   => [
+                ['property' => 'border-radius', 'selector' => '.immoadmin-table'],
+                ['property' => 'overflow',      'selector' => '.immoadmin-table', 'value' => 'hidden'],
+            ],
+        ];
+
+        $this->controls['table_shadow'] = [
+            'tab'   => 'style',
+            'group' => 'style_table',
+            'label' => esc_html__('Schatten', 'immoadmin'),
+            'type'  => 'box-shadow',
+            'css'   => [
+                ['property' => 'box-shadow', 'selector' => '.immoadmin-table'],
             ],
         ];
     }

@@ -129,11 +129,10 @@
         overflow: hidden;
         max-height: 0;
         opacity: 0;
-        transition: max-height 0.25s ease, opacity 0.2s ease;
-        border-bottom: var(--iat-border);
+        transition: max-height var(--iat-accordion-transition, 0.25s) ease, opacity 0.2s ease;
     }
     :where(.brxe-immoadmin-units-table) .accordion-title-wrapper.brx-open + .immoadmin-accordion-panel {
-        max-height: 4000px;
+        max-height: var(--iat-accordion-max-height, 4000px);
         opacity: 1;
     }
 
