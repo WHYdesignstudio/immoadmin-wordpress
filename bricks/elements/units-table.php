@@ -454,14 +454,22 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
      */
     private function favorites_hint_html() {
         $rows = [
-            'Haus'       => '{cf_building_name}',
-            'Top'        => '{cf_door_number}',
-            'Geschoss'   => '{cf_floor_label}',
-            'Zimmer'     => '{cf_room_count}',
-            'Wohnfläche' => '{cf_living_area_formatted}',
-            'Kaufpreis'  => '{cf_purchase_price_formatted}',
-            'Exposé'     => '{cf_document_1_url}',
-            'Status'     => '{cf_status}',
+            'Haus'             => '{cf_building_name}',
+            'Top'              => '{cf_door_number}',
+            'Geschoss'         => '{cf_floor_label}',
+            'Zimmer'           => '{cf_room_count}',
+            'Wohnfläche'       => '{cf_living_area_formatted}',
+            'Nutzfläche'       => '{cf_usable_area_formatted}',
+            'Balkon'           => '{cf_balcony_area_formatted}',
+            'Terrasse'         => '{cf_terrace_area_formatted}',
+            'Loggia'           => '{cf_loggia_area_formatted}',
+            'Garten'           => '{cf_garden_area_formatted}',
+            'Dachterrasse'     => '{cf_roof_terrace_area_formatted}',
+            'Freifläche gesamt'=> '{cf_outdoor_area_total_formatted}',
+            'Ausrichtung'      => '{cf_orientation}',
+            'Kaufpreis'        => '{cf_purchase_price_formatted}',
+            'Exposé'           => '{cf_document_1_url}',
+            'Status'           => '{cf_status}',
         ];
 
         $html = '<strong>' . esc_html__('Häufig genutzte Werte', 'immoadmin') . '</strong><br>';
