@@ -512,6 +512,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // Surface the query element id to JS so it can refetch via Bricks filter system.
         $this->set_attribute('_root', 'data-bricks-query-id', $this->id);
 
+        // In Bricks builder iframe: flag so CSS can force the first row's
+        // accordion panel open (designer can't style what they can't see).
+        if (function_exists('bricks_is_builder_iframe') && bricks_is_builder_iframe()) {
+            $this->set_attribute('_root', 'data-builder', '1');
+        }
+
         echo "<div {$this->render_attributes('_root')}>";
 
         if ($horizontal_scroll) {

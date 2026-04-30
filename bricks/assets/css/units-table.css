@@ -137,6 +137,18 @@
         opacity: 1;
     }
 
+    /* Builder context: force the FIRST row's accordion panel open so the
+     * designer can see and style the children template. JS toggle is a
+     * frontend-only concern; the designer never clicks rows in the builder. */
+    :where(.brxe-immoadmin-units-table)[data-builder="1"] .accordion-item:first-of-type .immoadmin-accordion-panel {
+        max-height: none;
+        opacity: 1;
+        transition: none;
+    }
+    :where(.brxe-immoadmin-units-table)[data-builder="1"] .accordion-item:first-of-type .accordion-title-wrapper {
+        background: rgba(59, 130, 246, 0.06); /* subtle highlight so designer sees which row is the "preview" */
+    }
+
     /* Status modifiers (designer-targetable) */
     :where(.brxe-immoadmin-units-table) .is-available {}
     :where(.brxe-immoadmin-units-table) .is-reserved {}
