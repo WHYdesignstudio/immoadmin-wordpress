@@ -207,6 +207,13 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                     'inline'  => true,
                     'small'   => true,
                 ],
+                'compact' => [
+                    'label'   => esc_html__('Kompakt (auto-Breite)', 'immoadmin'),
+                    'type'    => 'checkbox',
+                    'info'    => esc_html__('Spalte nimmt nur so viel Breite wie der Inhalt — gut für Status-Punkte oder Icon-Spalten.', 'immoadmin'),
+                    'inline'  => true,
+                    'small'   => true,
+                ],
                 'align' => [
                     'label'   => esc_html__('Ausrichtung', 'immoadmin'),
                     'type'    => 'select',
@@ -507,8 +514,14 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         if ($inline_sort) {
             $this->set_attribute('_root', 'data-inline-sort', '1');
         }
-        // Number of columns drives the CSS grid template.
-        $this->set_attribute('_root', 'style', '--iat-cols:' . max(1, count($columns)));
+        // Build per-column grid track sizes. Compact columns get min-content
+        // (e.g. status dot), all others share the remaining 1fr equally.
+        $tracks = [];
+        foreach ($columns as $col) {
+            $tracks[] = !empty($col['compact']) ? 'min-content' : 'minmax(min-content, 1fr)';
+        }
+        $grid_template = !empty($tracks) ? implode(' ', $tracks) : 'minmax(min-content, 1fr)';
+        $this->set_attribute('_root', 'style', '--iat-grid-cols: ' . $grid_template . '; --iat-cols: ' . max(1, count($columns)));
         // Surface the query element id to JS so it can refetch via Bricks filter system.
         $this->set_attribute('_root', 'data-bricks-query-id', $this->id);
 

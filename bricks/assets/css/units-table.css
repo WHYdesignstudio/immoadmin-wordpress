@@ -26,7 +26,7 @@
 
     :where(.brxe-immoadmin-units-table) .immoadmin-table {
         display: grid;
-        grid-template-columns: repeat(var(--iat-cols, 1), minmax(min-content, 1fr));
+        grid-template-columns: var(--iat-grid-cols, repeat(var(--iat-cols, 1), minmax(min-content, 1fr)));
         width: 100%;
     }
 
