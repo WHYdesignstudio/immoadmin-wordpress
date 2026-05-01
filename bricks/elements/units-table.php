@@ -82,8 +82,8 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         $this->control_groups['status_colors'] = [
-            'title' => esc_html__('Status-Farben', 'immoadmin'),
-            'tab'   => 'content',
+            'title' => esc_html__('Status (Farben & Punkt)', 'immoadmin'),
+            'tab'   => 'style',
         ];
 
         $this->control_groups['style_header'] = [
@@ -322,15 +322,38 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $this->controls['url_state_enabled'] = [
             'tab'     => 'content',
             'group'   => 'behavior',
-            'label'   => esc_html__('URL-State (?unit=ID)', 'immoadmin'),
+            'label'   => esc_html__('URL-State aktiv', 'immoadmin'),
             'type'    => 'checkbox',
             'default' => true,
             'desc'    => esc_html__('Öffnet beim Aufruf das passende Akkordion und scrollt dorthin.', 'immoadmin'),
         ];
 
+        $this->controls['url_state_key'] = [
+            'tab'         => 'content',
+            'group'       => 'behavior',
+            'label'       => esc_html__('URL-Parameter Name', 'immoadmin'),
+            'type'        => 'text',
+            'default'     => 'unit',
+            'placeholder' => 'unit',
+            'info'        => esc_html__('Beispiel: "top" → ?top=15. Nur a-z, 0-9, _.', 'immoadmin'),
+            'required'    => ['url_state_enabled', '!=', ''],
+        ];
+
+        $this->controls['url_state_value'] = [
+            'tab'            => 'content',
+            'group'          => 'behavior',
+            'label'          => esc_html__('URL-Parameter Wert', 'immoadmin'),
+            'type'           => 'text',
+            'default'        => '{post_id}',
+            'placeholder'    => '{post_id}',
+            'hasDynamicData' => true,
+            'info'           => esc_html__('Welcher Wert pro Wohnung in der URL stehen soll. Z.B. {cf_door_number} für Top-Nummer.', 'immoadmin'),
+            'required'       => ['url_state_enabled', '!=', ''],
+        ];
+
         // ---------- Status colors ----------
         $this->controls['color_available'] = [
-            'tab'   => 'content',
+            'tab'   => 'style',
             'group' => 'status_colors',
             'label' => esc_html__('Verfügbar', 'immoadmin'),
             'type'  => 'color',
@@ -341,7 +364,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         $this->controls['color_reserved'] = [
-            'tab'   => 'content',
+            'tab'   => 'style',
             'group' => 'status_colors',
             'label' => esc_html__('Reserviert', 'immoadmin'),
             'type'  => 'color',
@@ -352,7 +375,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         $this->controls['color_sold'] = [
-            'tab'   => 'content',
+            'tab'   => 'style',
             'group' => 'status_colors',
             'label' => esc_html__('Verkauft', 'immoadmin'),
             'type'  => 'color',
@@ -363,7 +386,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         $this->controls['dot_size'] = [
-            'tab'         => 'content',
+            'tab'         => 'style',
             'group'       => 'status_colors',
             'label'       => esc_html__('Punkt-Größe', 'immoadmin'),
             'type'        => 'number',
@@ -686,6 +709,8 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $status_handling  = !empty($settings['status_handling']) ? $settings['status_handling'] : 'show';
         $horizontal_scroll = !empty($settings['horizontal_scroll']);
         $url_state         = !empty($settings['url_state_enabled']);
+        $url_state_key     = !empty($settings['url_state_key']) ? preg_replace('/[^a-z0-9_]/i', '', $settings['url_state_key']) : 'unit';
+        $url_state_value_dd = !empty($settings['url_state_value']) ? $settings['url_state_value'] : '{post_id}';
         $inline_sort       = !empty($settings['inline_sort_enabled']);
 
         // Build _root attributes.
@@ -694,17 +719,23 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $this->set_attribute('_root', 'data-status-handling', $status_handling);
         if ($url_state) {
             $this->set_attribute('_root', 'data-url-state', '1');
+            $this->set_attribute('_root', 'data-url-key', $url_state_key);
         }
         if ($inline_sort) {
             $this->set_attribute('_root', 'data-inline-sort', '1');
         }
-        // Build per-column grid track sizes. Compact columns get min-content
-        // (e.g. status dot), all others share the remaining 1fr equally.
+        // Build per-column grid track sizes. Compact columns get max-content,
+        // others share 1fr (fit container) — UNLESS horizontal scroll is on,
+        // in which case all non-compact columns also use max-content so the
+        // table can grow wider than its wrapper and trigger overflow-x:auto.
+        $default_track = !empty($settings['horizontal_scroll'])
+            ? 'max-content'
+            : 'minmax(min-content, 1fr)';
         $tracks = [];
         foreach ($columns as $col) {
-            $tracks[] = !empty($col['compact']) ? 'max-content' : 'minmax(min-content, 1fr)';
+            $tracks[] = !empty($col['compact']) ? 'max-content' : $default_track;
         }
-        $grid_template = !empty($tracks) ? implode(' ', $tracks) : 'minmax(min-content, 1fr)';
+        $grid_template = !empty($tracks) ? implode(' ', $tracks) : $default_track;
         $this->set_attribute('_root', 'style', '--iat-grid-cols: ' . $grid_template . '; --iat-cols: ' . max(1, count($columns)));
         // Surface the query element id to JS so it can refetch via Bricks filter system.
         $this->set_attribute('_root', 'data-bricks-query-id', $this->id);
@@ -771,11 +802,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // Tag this render so the loop callback can pull instance config without
         // relying on $this (the callback runs as a static method).
         $GLOBALS['immoadmin_units_table_render_context'] = [
-            'columns'          => $columns,
-            'mode'             => $mode,
-            'status_handling'  => $status_handling,
-            'element_id'       => $this->id,
-            'element_instance' => $this,
+            'columns'           => $columns,
+            'mode'              => $mode,
+            'status_handling'   => $status_handling,
+            'element_id'        => $this->id,
+            'element_instance'  => $this,
+            'url_state_value_dd'=> $url_state ? $url_state_value_dd : '',
         ];
 
         $query_obj = new \Bricks\Query($element);
@@ -828,15 +860,22 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ? $GLOBALS['immoadmin_units_table_render_context']
             : [];
 
-        $columns          = $ctx['columns'] ?? [];
-        $mode             = $ctx['mode'] ?? 'accordion';
-        $status_handling  = $ctx['status_handling'] ?? 'show';
-        $element_id       = $ctx['element_id'] ?? '';
-        $element_instance = $ctx['element_instance'] ?? null;
+        $columns           = $ctx['columns'] ?? [];
+        $mode              = $ctx['mode'] ?? 'accordion';
+        $status_handling   = $ctx['status_handling'] ?? 'show';
+        $element_id        = $ctx['element_id'] ?? '';
+        $element_instance  = $ctx['element_instance'] ?? null;
+        $url_state_value_dd = $ctx['url_state_value_dd'] ?? '';
 
         $post_id = get_the_ID();
         $status  = (string) get_post_meta($post_id, 'status', true);
         $is_sold = ($status === 'sold');
+
+        // Resolve URL-state value once per row (e.g. "{cf_door_number}" -> "15").
+        $url_value = '';
+        if ($url_state_value_dd !== '' && $element_instance) {
+            $url_value = trim((string) $element_instance->render_dynamic_data($url_state_value_dd));
+        }
 
         if ($is_sold && $status_handling === 'hide') {
             return '';
@@ -867,6 +906,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             $output .= '<div class="accordion-item ' . esc_attr(implode(' ', array_map('sanitize_html_class', ['immoadmin-table-rowgroup'])))
                 . '" role="rowgroup"'
                 . ' data-unit-id="' . esc_attr((string) $post_id) . '"'
+                . ' data-url-value="' . esc_attr($url_value) . '"'
                 . ' data-status="' . esc_attr($status) . '"'
                 . '>';
 
@@ -879,6 +919,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         } else {
             $row_attr  = ' role="row"';
             $row_attr .= ' data-unit-id="' . esc_attr((string) $post_id) . '"';
+            $row_attr .= ' data-url-value="' . esc_attr($url_value) . '"';
             $row_attr .= ' data-status="' . esc_attr($status) . '"';
         }
 

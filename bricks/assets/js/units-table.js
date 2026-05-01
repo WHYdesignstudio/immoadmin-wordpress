@@ -43,6 +43,8 @@
 
             var item = trigger.closest('.accordion-item');
             var unitId = item ? item.getAttribute('data-unit-id') : null;
+            var urlValue = item ? item.getAttribute('data-url-value') : null;
+            var urlKey = table.dataset.urlKey || 'unit';
 
             // Dispatch Bricks-compat custom event.
             document.dispatchEvent(new CustomEvent(
@@ -50,12 +52,12 @@
                 { detail: { elementId: table.dataset.bricksQueryId || '', unitId: unitId } }
             ));
 
-            if (urlState && unitId) {
+            if (urlState && urlValue) {
                 var url = new URL(window.location.href);
                 if (willOpen) {
-                    url.searchParams.set('unit', unitId);
-                } else if (url.searchParams.get('unit') === unitId) {
-                    url.searchParams.delete('unit');
+                    url.searchParams.set(urlKey, urlValue);
+                } else if (url.searchParams.get(urlKey) === urlValue) {
+                    url.searchParams.delete(urlKey);
                 }
                 history.replaceState(null, '', url.toString());
             }
@@ -137,21 +139,27 @@
         }
 
         // ------------------------------------------------------------------
-        // URL state on load — open ?unit=N or #unit-N and scroll into view.
+        // URL state on load — open the accordion whose data-url-value matches
+        // ?{urlKey}=VALUE (or #{urlKey}-VALUE), then scroll it into view.
+        // urlKey is configurable per element (default "unit").
         // ------------------------------------------------------------------
+        var urlKeyOnLoad = table.dataset.urlKey || 'unit';
         var requested = null;
         try {
             var urlObj = new URL(window.location.href);
-            requested = urlObj.searchParams.get('unit');
-            if (!requested && location.hash.indexOf('#unit-') === 0) {
-                requested = location.hash.slice(6);
+            requested = urlObj.searchParams.get(urlKeyOnLoad);
+            if (!requested && location.hash.indexOf('#' + urlKeyOnLoad + '-') === 0) {
+                requested = location.hash.slice(urlKeyOnLoad.length + 2);
             }
         } catch (_) {
             requested = null;
         }
 
         if (requested) {
-            var item = table.querySelector('[data-unit-id="' + cssEscape(requested) + '"]');
+            // Match by data-url-value (per-row resolved DD); fall back to
+            // data-unit-id for backwards compat with older rendered pages.
+            var item = table.querySelector('[data-url-value="' + cssEscape(requested) + '"]') ||
+                       table.querySelector('[data-unit-id="' + cssEscape(requested) + '"]');
             if (item) {
                 var trigger = item.querySelector('.accordion-title-wrapper') ||
                     (item.classList.contains('accordion-title-wrapper') ? item : null);
