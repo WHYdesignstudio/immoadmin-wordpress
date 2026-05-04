@@ -136,6 +136,9 @@
         max-height: 0;
         opacity: 0;
         transition: max-height var(--iat-accordion-transition, 0.25s) ease, opacity 0.2s ease;
+        /* Ensure user-applied padding is INSIDE max-height, otherwise a
+         * collapsed panel still claims padding-worth of vertical space. */
+        box-sizing: border-box;
     }
     :where(.brxe-immoadmin-units-table) .accordion-title-wrapper.brx-open + .immoadmin-accordion-panel {
         max-height: var(--iat-accordion-max-height, 4000px);
