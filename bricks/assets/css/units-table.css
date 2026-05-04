@@ -230,6 +230,23 @@
         opacity: 0.6;
     }
 
+    /* Icon column */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-icon {
+        font-size: 1.1em;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-icon-link {
+        display: inline-flex;
+        align-items: center;
+        text-decoration: none;
+        transition: opacity 0.15s ease;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-icon-link:hover {
+        opacity: 0.7;
+    }
+
     /* Empty state */
     :where(.brxe-immoadmin-units-table) .immoadmin-table-empty .immoadmin-table-cell {
         grid-column: 1 / -1;

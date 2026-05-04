@@ -160,6 +160,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                         'image'         => esc_html__('Bild', 'immoadmin'),
                         'status_badge'  => esc_html__('Status-Badge (Pille mit Text)', 'immoadmin'),
                         'status_dot'    => esc_html__('Status-Punkt (nur Farbe)', 'immoadmin'),
+                        'icon'          => esc_html__('Icon (optional als Link)', 'immoadmin'),
                         'html'          => esc_html__('HTML', 'immoadmin'),
                     ],
                     'default'   => 'text',
@@ -172,6 +173,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                     'hasDynamicData' => true,
                     'required'       => ['type', '=', 'link'],
                 ],
+                'icon' => [
+                    'label'    => esc_html__('Icon', 'immoadmin'),
+                    'type'     => 'icon',
+                    'default'  => ['library' => 'themify', 'icon' => 'ti-link'],
+                    'required' => ['type', '=', 'icon'],
+                ],
                 'link_target' => [
                     'label'    => esc_html__('Link-Ziel', 'immoadmin'),
                     'type'     => 'select',
@@ -181,7 +188,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                     ],
                     'default'  => '_self',
                     'inline'   => true,
-                    'required' => ['type', '=', 'link'],
+                    'required' => ['type', '!=', 'text'],
                 ],
                 'sortable' => [
                     'label'   => esc_html__('Sortierbar', 'immoadmin'),
@@ -990,7 +997,9 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $inner = '';
 
-        if ($is_empty) {
+        // Icon columns are exempt from the empty-fallback: an icon column may
+        // intentionally have no DD value (= just a static icon, no link).
+        if ($is_empty && $type !== 'icon') {
             $inner = $fallback !== ''
                 ? '<span class="immoadmin-cell-empty">' . esc_html($fallback) . '</span>'
                 : '';
@@ -1030,6 +1039,34 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                 $status_class = sanitize_html_class($resolved);
                 $inner = '<span class="immoadmin-status-dot is-' . esc_attr($status_class) .
                     '" aria-label="' . esc_attr($resolved) . '" title="' . esc_attr($resolved) . '"></span>';
+                break;
+
+            case 'icon':
+                $icon_setting = isset($col['icon']) && is_array($col['icon']) ? $col['icon'] : null;
+                if (!$icon_setting || empty($icon_setting['icon'])) {
+                    // No icon picked → fallback or nothing.
+                    $inner = $fallback !== ''
+                        ? '<span class="immoadmin-cell-empty">' . esc_html($fallback) . '</span>'
+                        : '';
+                    break;
+                }
+                $icon_html = \Bricks\Element::render_icon($icon_setting, ['immoadmin-table-icon']);
+                $href      = $resolved_trim !== '' ? esc_url($resolved) : '';
+                $aria      = isset($col['link_text']) && $col['link_text'] !== ''
+                    ? bricks_render_dynamic_data((string) $col['link_text'])
+                    : '';
+                if ($href !== '') {
+                    $target = !empty($col['link_target']) ? $col['link_target'] : '_self';
+                    $rel    = ($target === '_blank') ? ' rel="noopener noreferrer"' : '';
+                    $aria_attr = $aria !== '' ? ' aria-label="' . esc_attr($aria) . '"' : '';
+                    $inner  = '<a class="immoadmin-table-link immoadmin-table-icon-link" href="' . $href .
+                        '" target="' . esc_attr($target) . '"' . $rel . $aria_attr . '>' .
+                        $icon_html . '</a>';
+                } else {
+                    // Static icon, no link.
+                    $aria_attr = $aria !== '' ? ' aria-label="' . esc_attr($aria) . '" role="img"' : ' aria-hidden="true"';
+                    $inner = '<span class="immoadmin-table-icon-wrap"' . $aria_attr . '>' . $icon_html . '</span>';
+                }
                 break;
 
             case 'html':
