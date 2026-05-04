@@ -359,6 +359,13 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         // ---------- Status colors ----------
+        $this->controls['sep_status'] = [
+            'tab'   => 'style',
+            'group' => 'table_style',
+            'type'  => 'separator',
+            'label' => esc_html__('Status (Farben & Punkt)', 'immoadmin'),
+        ];
+
         $this->controls['color_available'] = [
             'tab'   => 'style',
             'group' => 'table_style',
@@ -410,6 +417,13 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         // ========== Style: Kopfzeile ==========
+        $this->controls['sep_header'] = [
+            'tab'   => 'style',
+            'group' => 'table_style',
+            'type'  => 'separator',
+            'label' => esc_html__('Kopfzeile', 'immoadmin'),
+        ];
+
         $this->controls['header_typography'] = [
             'tab'   => 'style',
             'group' => 'table_style',
@@ -451,6 +465,13 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         // ========== Style: Zeilen ==========
+        $this->controls['sep_rows'] = [
+            'tab'   => 'style',
+            'group' => 'table_style',
+            'type'  => 'separator',
+            'label' => esc_html__('Zeilen', 'immoadmin'),
+        ];
+
         $this->controls['row_typography'] = [
             'tab'   => 'style',
             'group' => 'table_style',
@@ -534,6 +555,13 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         // ========== Style: Akkordion ==========
+        $this->controls['sep_accordion'] = [
+            'tab'   => 'style',
+            'group' => 'table_style',
+            'type'  => 'separator',
+            'label' => esc_html__('Akkordion-Body', 'immoadmin'),
+        ];
+
         $this->controls['accordion_body_background'] = [
             'tab'   => 'style',
             'group' => 'table_style',
@@ -591,6 +619,13 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         // ========== Style: Tabelle allgemein ==========
+        $this->controls['sep_table'] = [
+            'tab'   => 'style',
+            'group' => 'table_style',
+            'type'  => 'separator',
+            'label' => esc_html__('Tabelle gesamt', 'immoadmin'),
+        ];
+
         $this->controls['table_column_gap'] = [
             'tab'   => 'style',
             'group' => 'table_style',
