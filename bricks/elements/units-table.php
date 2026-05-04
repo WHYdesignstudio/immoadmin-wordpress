@@ -285,6 +285,15 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'default' => true,
         ];
 
+        $this->controls['accordion_single_open'] = [
+            'tab'     => 'content',
+            'group'   => 'behavior',
+            'label'   => esc_html__('Nur eine Zeile gleichzeitig öffnen', 'immoadmin'),
+            'type'    => 'checkbox',
+            'default' => true,
+            'desc'    => esc_html__('Öffnet eine neue Zeile → schließt automatisch die vorherige.', 'immoadmin'),
+        ];
+
         $this->controls['status_handling'] = [
             'tab'       => 'content',
             'group'     => 'behavior',
@@ -721,6 +730,10 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         }
         if ($inline_sort) {
             $this->set_attribute('_root', 'data-inline-sort', '1');
+        }
+        // Default true — single-open is the typical flatfinder UX.
+        if (!isset($settings['accordion_single_open']) || !empty($settings['accordion_single_open'])) {
+            $this->set_attribute('_root', 'data-single-open', '1');
         }
         // Build per-column grid track sizes. Compact columns get max-content,
         // others share 1fr (fit container) — UNLESS horizontal scroll is on,

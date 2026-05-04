@@ -38,6 +38,18 @@
 
         function toggleRow(trigger) {
             var willOpen = !trigger.classList.contains('brx-open');
+
+            // Single-open mode: before opening this row, close any other.
+            if (willOpen && table.dataset.singleOpen === '1') {
+                var others = table.querySelectorAll('.accordion-title-wrapper.brx-open');
+                others.forEach(function (o) {
+                    if (o !== trigger) {
+                        o.classList.remove('brx-open');
+                        o.setAttribute('aria-expanded', 'false');
+                    }
+                });
+            }
+
             trigger.classList.toggle('brx-open', willOpen);
             trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
 
