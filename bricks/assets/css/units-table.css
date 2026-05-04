@@ -224,6 +224,12 @@
         text-decoration: underline;
     }
 
+    /* Empty value placeholder — designer-targetable (gray by default). */
+    :where(.brxe-immoadmin-units-table) .immoadmin-cell-empty {
+        color: var(--bricks-text-medium, #94a3b8);
+        opacity: 0.6;
+    }
+
     /* Empty state */
     :where(.brxe-immoadmin-units-table) .immoadmin-table-empty .immoadmin-table-cell {
         grid-column: 1 / -1;

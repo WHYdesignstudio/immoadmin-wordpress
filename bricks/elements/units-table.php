@@ -196,6 +196,14 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                     'info'     => esc_html__('Leer lassen, um Meta-Key automatisch aus dem Wert abzuleiten.', 'immoadmin'),
                     'required' => ['sortable', '!=', ''],
                 ],
+                'fallback' => [
+                    'label'          => esc_html__('Fallback bei leerem Wert', 'immoadmin'),
+                    'type'           => 'text',
+                    'default'        => '—',
+                    'placeholder'    => '—',
+                    'hasDynamicData' => true,
+                    'info'           => esc_html__('Wird gezeigt wenn die Wohnung den Wert nicht hat (z.B. kein PDF hochgeladen). Leer lassen für leere Zelle.', 'immoadmin'),
+                ],
                 'mobile_visible' => [
                     'label'   => esc_html__('Auf Mobil sichtbar', 'immoadmin'),
                     'type'    => 'checkbox',
@@ -970,7 +978,24 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $cell_attrs .= ' data-col-index="' . esc_attr((string) $idx) . '"';
         $cell_attrs .= ' data-sort-value="' . esc_attr($sort_value) . '"';
 
+        // Treat whitespace-only as empty so the fallback kicks in for
+        // " " or "\n" values returned by some DD providers.
+        $resolved_trim = is_string($resolved) ? trim($resolved) : (string) $resolved;
+        $is_empty = ($resolved_trim === '');
+
+        // Per-column fallback for empty values (default "—"). Resolve DD too
+        // so users can put e.g. "{post_title}" or any string.
+        $fallback_raw = isset($col['fallback']) ? (string) $col['fallback'] : '—';
+        $fallback     = bricks_render_dynamic_data($fallback_raw);
+
         $inner = '';
+
+        if ($is_empty) {
+            $inner = $fallback !== ''
+                ? '<span class="immoadmin-cell-empty">' . esc_html($fallback) . '</span>'
+                : '';
+            return '<div class="immoadmin-table-cell"' . $cell_attrs . '>' . $inner . '</div>';
+        }
 
         switch ($type) {
             case 'link':
