@@ -338,23 +338,23 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $this->controls['url_state_key'] = [
             'tab'         => 'content',
             'group'       => 'behavior',
-            'label'       => esc_html__('URL-Parameter Name', 'immoadmin'),
+            'label'       => esc_html__('URL-Parameter Name (vor dem =)', 'immoadmin'),
             'type'        => 'text',
             'default'     => 'unit',
             'placeholder' => 'unit',
-            'info'        => esc_html__('Beispiel: "top" → ?top=15. Nur a-z, 0-9, _.', 'immoadmin'),
+            'info'        => esc_html__('Statischer Schlüssel — z.B. "top" → URL wird ?top=… . Nur a-z, 0-9, _ erlaubt. KEINE Dynamic Data hier.', 'immoadmin'),
             'required'    => ['url_state_enabled', '!=', ''],
         ];
 
         $this->controls['url_state_value'] = [
             'tab'            => 'content',
             'group'          => 'behavior',
-            'label'          => esc_html__('URL-Parameter Wert', 'immoadmin'),
+            'label'          => esc_html__('URL-Parameter Wert (nach dem =)', 'immoadmin'),
             'type'           => 'text',
             'default'        => '{post_id}',
             'placeholder'    => '{post_id}',
             'hasDynamicData' => true,
-            'info'           => esc_html__('Welcher Wert pro Wohnung in der URL stehen soll. Z.B. {cf_door_number} für Top-Nummer.', 'immoadmin'),
+            'info'           => esc_html__('Pro Wohnung dynamisch. Beispiele: {cf_door_number} (nur Top-Nr) oder {cf_building_name}-Top-{cf_door_number} (eindeutig über mehrere Häuser) oder {post_id}.', 'immoadmin'),
             'required'       => ['url_state_enabled', '!=', ''],
         ];
 
