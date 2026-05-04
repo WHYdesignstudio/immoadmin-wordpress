@@ -81,25 +81,8 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'tab'   => 'content',
         ];
 
-        $this->control_groups['status_colors'] = [
-            'title' => esc_html__('Status (Farben & Punkt)', 'immoadmin'),
-            'tab'   => 'style',
-        ];
-
-        $this->control_groups['style_header'] = [
-            'title' => esc_html__('Kopfzeile', 'immoadmin'),
-            'tab'   => 'style',
-        ];
-        $this->control_groups['style_rows'] = [
-            'title' => esc_html__('Zeilen', 'immoadmin'),
-            'tab'   => 'style',
-        ];
-        $this->control_groups['style_accordion'] = [
-            'title' => esc_html__('Akkordion', 'immoadmin'),
-            'tab'   => 'style',
-        ];
-        $this->control_groups['style_table'] = [
-            'title' => esc_html__('Tabelle allgemein', 'immoadmin'),
+        $this->control_groups['table_style'] = [
+            'title' => esc_html__('Tabellen-Stil', 'immoadmin'),
             'tab'   => 'style',
         ];
     }
@@ -354,7 +337,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // ---------- Status colors ----------
         $this->controls['color_available'] = [
             'tab'   => 'style',
-            'group' => 'status_colors',
+            'group' => 'table_style',
             'label' => esc_html__('Verfügbar', 'immoadmin'),
             'type'  => 'color',
             'default' => ['hex' => '#10b981'],
@@ -365,7 +348,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['color_reserved'] = [
             'tab'   => 'style',
-            'group' => 'status_colors',
+            'group' => 'table_style',
             'label' => esc_html__('Reserviert', 'immoadmin'),
             'type'  => 'color',
             'default' => ['hex' => '#f59e0b'],
@@ -376,7 +359,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['color_sold'] = [
             'tab'   => 'style',
-            'group' => 'status_colors',
+            'group' => 'table_style',
             'label' => esc_html__('Verkauft', 'immoadmin'),
             'type'  => 'color',
             'default' => ['hex' => '#ef4444'],
@@ -387,7 +370,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['dot_size'] = [
             'tab'         => 'style',
-            'group'       => 'status_colors',
+            'group'       => 'table_style',
             'label'       => esc_html__('Punkt-Größe', 'immoadmin'),
             'type'        => 'number',
             'units'       => true,
@@ -405,7 +388,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // ========== Style: Kopfzeile ==========
         $this->controls['header_typography'] = [
             'tab'   => 'style',
-            'group' => 'style_header',
+            'group' => 'table_style',
             'label' => esc_html__('Typografie', 'immoadmin'),
             'type'  => 'typography',
             'css'   => [
@@ -415,7 +398,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['header_background'] = [
             'tab'   => 'style',
-            'group' => 'style_header',
+            'group' => 'table_style',
             'label' => esc_html__('Hintergrund', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
@@ -425,7 +408,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['header_padding'] = [
             'tab'   => 'style',
-            'group' => 'style_header',
+            'group' => 'table_style',
             'label' => esc_html__('Padding', 'immoadmin'),
             'type'  => 'spacing',
             'css'   => [
@@ -435,7 +418,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['header_border'] = [
             'tab'   => 'style',
-            'group' => 'style_header',
+            'group' => 'table_style',
             'label' => esc_html__('Border', 'immoadmin'),
             'type'  => 'border',
             'css'   => [
@@ -446,7 +429,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // ========== Style: Zeilen ==========
         $this->controls['row_typography'] = [
             'tab'   => 'style',
-            'group' => 'style_rows',
+            'group' => 'table_style',
             'label' => esc_html__('Typografie', 'immoadmin'),
             'type'  => 'typography',
             'css'   => [
@@ -456,7 +439,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['row_background'] = [
             'tab'   => 'style',
-            'group' => 'style_rows',
+            'group' => 'table_style',
             'label' => esc_html__('Hintergrund', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
@@ -466,7 +449,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['row_alternate_background'] = [
             'tab'   => 'style',
-            'group' => 'style_rows',
+            'group' => 'table_style',
             'label' => esc_html__('Zebra-Streifen (gerade Zeilen)', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
@@ -476,7 +459,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['row_hover_background'] = [
             'tab'   => 'style',
-            'group' => 'style_rows',
+            'group' => 'table_style',
             'label' => esc_html__('Hover-Hintergrund', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
@@ -486,7 +469,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['row_open_background'] = [
             'tab'   => 'style',
-            'group' => 'style_rows',
+            'group' => 'table_style',
             'label' => esc_html__('Aktive Zeile (offen)', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
@@ -496,7 +479,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['row_padding'] = [
             'tab'   => 'style',
-            'group' => 'style_rows',
+            'group' => 'table_style',
             'label' => esc_html__('Zell-Padding', 'immoadmin'),
             'type'  => 'spacing',
             'css'   => [
@@ -506,7 +489,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['row_min_height'] = [
             'tab'   => 'style',
-            'group' => 'style_rows',
+            'group' => 'table_style',
             'label' => esc_html__('Mindesthöhe', 'immoadmin'),
             'type'  => 'number',
             'units' => true,
@@ -518,7 +501,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['row_border'] = [
             'tab'   => 'style',
-            'group' => 'style_rows',
+            'group' => 'table_style',
             'label' => esc_html__('Trennlinie zwischen Zeilen', 'immoadmin'),
             'type'  => 'border',
             'css'   => [
@@ -529,7 +512,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // ========== Style: Akkordion ==========
         $this->controls['accordion_body_background'] = [
             'tab'   => 'style',
-            'group' => 'style_accordion',
+            'group' => 'table_style',
             'label' => esc_html__('Body-Hintergrund', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
@@ -539,7 +522,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['accordion_body_padding'] = [
             'tab'   => 'style',
-            'group' => 'style_accordion',
+            'group' => 'table_style',
             'label' => esc_html__('Body-Padding', 'immoadmin'),
             'type'  => 'spacing',
             'css'   => [
@@ -549,7 +532,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['accordion_body_border'] = [
             'tab'   => 'style',
-            'group' => 'style_accordion',
+            'group' => 'table_style',
             'label' => esc_html__('Body-Border', 'immoadmin'),
             'type'  => 'border',
             'css'   => [
@@ -586,7 +569,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // ========== Style: Tabelle allgemein ==========
         $this->controls['table_column_gap'] = [
             'tab'   => 'style',
-            'group' => 'style_table',
+            'group' => 'table_style',
             'label' => esc_html__('Spalten-Abstand', 'immoadmin'),
             'type'  => 'number',
             'units' => true,
@@ -598,7 +581,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['table_border'] = [
             'tab'   => 'style',
-            'group' => 'style_table',
+            'group' => 'table_style',
             'label' => esc_html__('Tabellen-Border', 'immoadmin'),
             'type'  => 'border',
             'css'   => [
@@ -608,7 +591,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['table_border_radius'] = [
             'tab'   => 'style',
-            'group' => 'style_table',
+            'group' => 'table_style',
             'label' => esc_html__('Border-Radius', 'immoadmin'),
             'type'  => 'number',
             'units' => true,
@@ -621,7 +604,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls['table_shadow'] = [
             'tab'   => 'style',
-            'group' => 'style_table',
+            'group' => 'table_style',
             'label' => esc_html__('Schatten', 'immoadmin'),
             'type'  => 'box-shadow',
             'css'   => [
