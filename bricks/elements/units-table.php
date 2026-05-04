@@ -757,16 +757,27 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             $this->set_attribute('_root', 'data-builder', '1');
         }
 
-        echo "<div {$this->render_attributes('_root')}>";
+        // On AJAX filter / pagination requests, Bricks expects ONLY the loop
+        // items in the response (not the wrapper, not the header) — it then
+        // injects them into the existing wrapper DOM. If we re-render the
+        // wrapper here, Bricks JS nests a second full element inside the old
+        // one (visible: 2 headers, doubled rows). Mirror Posts.php pattern.
+        $is_ajax_loop = class_exists('\\Bricks\\Api') && (
+            \Bricks\Api::is_current_endpoint('load_query_page')
+            || \Bricks\Api::is_current_endpoint('query_result')
+        );
 
-        if ($horizontal_scroll) {
-            echo '<div class="immoadmin-table-scroll">';
-        }
+        if (!$is_ajax_loop) {
+            echo "<div {$this->render_attributes('_root')}>";
 
-        echo '<div class="immoadmin-table" role="table">';
+            if ($horizontal_scroll) {
+                echo '<div class="immoadmin-table-scroll">';
+            }
 
-        // --- Header row ---
-        echo '<div class="immoadmin-table-header" role="row">';
+            echo '<div class="immoadmin-table" role="table">';
+
+            // --- Header row ---
+            echo '<div class="immoadmin-table-header" role="row">';
         if (empty($columns)) {
             echo '<div class="immoadmin-table-cell-header" role="columnheader">' .
                 esc_html__('Bitte mindestens eine Spalte konfigurieren.', 'immoadmin') . '</div>';
@@ -798,7 +809,8 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                 echo '</div>';
             }
         }
-        echo '</div>';
+            echo '</div>';
+        } // end !$is_ajax_loop wrapper-open block
 
         // --- Body via Bricks Query ---
         // Use $this->element (the element array Bricks passed to __construct)
@@ -840,15 +852,18 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             echo $body_html; // Already escaped per cell inside render_row().
         }
 
-        echo '</div>'; // .immoadmin-table
+        if (!$is_ajax_loop) {
+            echo '</div>'; // .immoadmin-table
 
-        if ($horizontal_scroll) {
-            echo '</div>'; // .immoadmin-table-scroll
+            if ($horizontal_scroll) {
+                echo '</div>'; // .immoadmin-table-scroll
+            }
+
+            echo '</div>'; // _root
         }
 
-        echo '</div>'; // _root
-
         // Required for Filter / Pagination integration. Must run BEFORE destroy().
+        // (render_query_loop_trail itself bails out on REST calls, so safe.)
         $this->render_query_loop_trail($query_obj);
 
         $query_obj->destroy();
