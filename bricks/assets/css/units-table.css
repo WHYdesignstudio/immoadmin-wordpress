@@ -135,10 +135,17 @@
         overflow: hidden;
         max-height: 0;
         opacity: 0;
-        transition: max-height var(--iat-accordion-transition, 0.25s) ease, opacity 0.2s ease;
-        /* Ensure user-applied padding is INSIDE max-height, otherwise a
-         * collapsed panel still claims padding-worth of vertical space. */
+        transition: max-height var(--iat-accordion-transition, 0.25s) ease,
+                    opacity 0.2s ease,
+                    padding var(--iat-accordion-transition, 0.25s) ease;
         box-sizing: border-box;
+    }
+    /* When the row above is NOT open, kill any user-set padding on the panel.
+     * Without this override, padding > 0 keeps the panel taking padding-px of
+     * vertical space even at max-height:0 (CSS box-model quirk). Higher
+     * specificity than Bricks' generated .brxe-{id} .selector rule. */
+    .brxe-immoadmin-units-table .accordion-item:not(:has(> .accordion-title-wrapper.brx-open)) > .immoadmin-accordion-panel {
+        padding: 0;
     }
     :where(.brxe-immoadmin-units-table) .accordion-title-wrapper.brx-open + .immoadmin-accordion-panel {
         max-height: var(--iat-accordion-max-height, 4000px);
