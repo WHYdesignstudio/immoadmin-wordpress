@@ -238,4 +238,16 @@ add_action('init', function () {
         'immoadmin-units-table',
         'ImmoAdmin_Units_Table'
     );
+
+    // Tell Bricks our element is a loop parent so CSS generated for children
+    // uses class-based selectors (.brxe-X) instead of ID selectors (#brxe-X).
+    // Without this, Bricks emits e.g. "#brxe-eeaihe { flex-direction: row }"
+    // — but the looped child instances can't have that ID (it'd be duplicated)
+    // so the rule never matches. With our element name in the list, Bricks
+    // checks Query::is_looping() and switches to .brxe-X. See:
+    // bricks/includes/assets.php:3854 ($loop_elements list).
+    add_filter('bricks/assets/generate_css_from_element', function ($additional, $element, $css_type) {
+        $additional[] = 'immoadmin-units-table';
+        return $additional;
+    }, 10, 3);
 }, 11);
