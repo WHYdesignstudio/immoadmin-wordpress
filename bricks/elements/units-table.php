@@ -554,69 +554,13 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ],
         ];
 
-        // ========== Style: Akkordion ==========
-        $this->controls['sep_accordion'] = [
-            'tab'   => 'style',
-            'group' => 'table_style',
-            'type'  => 'separator',
-            'label' => esc_html__('Akkordion-Body', 'immoadmin'),
-        ];
-
-        $this->controls['accordion_body_background'] = [
-            'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Body-Hintergrund', 'immoadmin'),
-            'type'  => 'color',
-            'css'   => [
-                ['property' => 'background-color', 'selector' => '.immoadmin-accordion-panel'],
-            ],
-        ];
-
-        $this->controls['accordion_body_padding'] = [
-            'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Body-Padding', 'immoadmin'),
-            'type'  => 'spacing',
-            'css'   => [
-                ['property' => 'padding', 'selector' => '.immoadmin-accordion-panel'],
-            ],
-        ];
-
-        $this->controls['accordion_body_border'] = [
-            'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Body-Border', 'immoadmin'),
-            'type'  => 'border',
-            'css'   => [
-                ['property' => 'border', 'selector' => '.immoadmin-accordion-panel'],
-            ],
-        ];
-
-        $this->controls['accordion_max_height'] = [
-            'tab'         => 'style',
-            'group'       => 'style_accordion',
-            'label'       => esc_html__('Max-Höhe (offen)', 'immoadmin'),
-            'type'        => 'number',
-            'units'       => true,
-            'placeholder' => '4000px',
-            'info'        => esc_html__('Falls Inhalt höher als 4000px wird, hier hochsetzen.', 'immoadmin'),
-            'css'         => [
-                ['property' => '--iat-accordion-max-height', 'selector' => ''],
-            ],
-        ];
-
-        $this->controls['accordion_transition'] = [
-            'tab'         => 'style',
-            'group'       => 'style_accordion',
-            'label'       => esc_html__('Animation-Dauer', 'immoadmin'),
-            'type'        => 'number',
-            'units'       => true,
-            'placeholder' => '0.25s',
-            'info'        => esc_html__('CSS-Transition (Sekunden). Beispiel: 0.25s, 400ms.', 'immoadmin'),
-            'css'         => [
-                ['property' => '--iat-accordion-transition', 'selector' => ''],
-            ],
-        ];
+        // Akkordion-Body styling intentionally removed — users style the
+        // child Block (or any element they drop into the slot) with native
+        // Bricks settings. Removed: sep_accordion, accordion_body_background,
+        // accordion_body_padding, accordion_body_border, accordion_max_height,
+        // accordion_transition. CSS still respects --iat-accordion-max-height
+        // and --iat-accordion-transition vars if set elsewhere; defaults
+        // (4000px / 0.25s) cover virtually all cases.
 
         // ========== Style: Tabelle allgemein ==========
         $this->controls['sep_table'] = [
