@@ -700,6 +700,11 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $inline_sort       = !empty($settings['inline_sort_enabled']);
 
         // Build _root attributes.
+        // Bricks emits its loop-aware CSS rules using the class
+        // ".brxe-{$this->id}" but doesn't add that class to our root by
+        // default (it sets id="brxe-..." instead). Without the matching
+        // class, descendant Block flex-direction etc. never apply. Add it.
+        $this->set_attribute('_root', 'class', 'brxe-' . $this->id);
         $this->set_attribute('_root', 'data-element', 'immoadmin-units-table');
         $this->set_attribute('_root', 'data-mode', $mode);
         $this->set_attribute('_root', 'data-status-handling', $status_handling);
