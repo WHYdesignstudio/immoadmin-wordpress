@@ -297,7 +297,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $this->controls['status_handling'] = [
             'tab'       => 'content',
             'group'     => 'behavior',
-            'label'     => esc_html__('Verkaufte Wohnungen', 'immoadmin'),
+            'label'     => esc_html__('Verkaufte / vermietete Wohnungen', 'immoadmin'),
             'type'      => 'select',
             'options'   => [
                 'show' => esc_html__('Anzeigen', 'immoadmin'),
@@ -396,6 +396,17 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'default' => ['hex' => '#ef4444'],
             'css'   => [
                 ['property' => '--iat-color-sold'],
+            ],
+        ];
+
+        $this->controls['color_rented'] = [
+            'tab'   => 'style',
+            'group' => 'table_style',
+            'label' => esc_html__('Vermietet', 'immoadmin'),
+            'type'  => 'color',
+            'default' => ['hex' => '#ef4444'],
+            'css'   => [
+                ['property' => '--iat-color-rented'],
             ],
         ];
 
@@ -879,7 +890,9 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $post_id = get_the_ID();
         $status  = (string) get_post_meta($post_id, 'status', true);
-        $is_sold = ($status === 'sold');
+        // Treat "sold" (Kauf) and "rented" (Miete) identically for hide/dim:
+        // both mean "not available anymore" from the visitor's perspective.
+        $is_unavailable = ($status === 'sold' || $status === 'rented');
 
         // Resolve URL-state value once per row (e.g. "{cf_door_number}" -> "15").
         $url_value = '';
@@ -887,7 +900,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             $url_value = trim((string) $element_instance->render_dynamic_data($url_state_value_dd));
         }
 
-        if ($is_sold && $status_handling === 'hide') {
+        if ($is_unavailable && $status_handling === 'hide') {
             return '';
         }
 
@@ -899,7 +912,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         if ($status) {
             $row_classes[] = 'is-' . sanitize_html_class($status);
         }
-        if ($is_sold && $status_handling === 'dim') {
+        if ($is_unavailable && $status_handling === 'dim') {
             $row_classes[] = 'is-dimmed';
         }
 

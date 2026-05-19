@@ -168,6 +168,7 @@
     :where(.brxe-immoadmin-units-table) .is-available {}
     :where(.brxe-immoadmin-units-table) .is-reserved {}
     :where(.brxe-immoadmin-units-table) .is-sold {}
+    :where(.brxe-immoadmin-units-table) .is-rented {}
 
     :where(.brxe-immoadmin-units-table) .is-dimmed {
         opacity: 0.5;
@@ -199,6 +200,9 @@
     :where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-sold {
         background-color: var(--iat-color-sold);
     }
+    :where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-rented {
+        background-color: var(--iat-color-rented, var(--iat-color-sold));
+    }
 
     /* Status dot — just a colored circle, no text. Color via .is-{status} */
     :where(.brxe-immoadmin-units-table) .immoadmin-status-dot {
@@ -218,6 +222,9 @@
     }
     :where(.brxe-immoadmin-units-table) .immoadmin-status-dot.is-sold {
         background-color: var(--iat-color-sold);
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-status-dot.is-rented {
+        background-color: var(--iat-color-rented, var(--iat-color-sold));
     }
 
     /* Image cell */

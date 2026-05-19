@@ -92,12 +92,13 @@ class ImmoAdmin_Post_Type {
             'building_name'          => array('type' => 'string', 'description' => 'Gebäude-Name'),
 
             // === Grunddaten ===
-            'status'                 => array('type' => 'string', 'description' => 'Status (available / reserved / sold)'),
-            'status_label'           => array('type' => 'string', 'description' => 'Status (Verfügbar / Reserviert / Verkauft)'),
+            'status'                 => array('type' => 'string', 'description' => 'Status (available / reserved / sold / rented)'),
+            'status_label'           => array('type' => 'string', 'description' => 'Status (Verfügbar / Reserviert / Verkauft / Vermietet)'),
             'object_type'            => array('type' => 'string', 'description' => 'Objektart (flat / house / plot / commercial / parking)'),
             'object_type_label'      => array('type' => 'string', 'description' => 'Objektart (Wohnung / Haus / Grundstück / Gewerbe / Stellplatz)'),
-            'marketing_type'         => array('type' => 'string', 'description' => 'Vermarktungsart (sale / rent)'),
-            'marketing_type_label'   => array('type' => 'string', 'description' => 'Vermarktungsart (Kauf / Miete)'),
+            'marketing_type'         => array('type' => 'string', 'description' => 'Vermarktungsart der Einheit (sale / rent)'),
+            'marketing_type_label'   => array('type' => 'string', 'description' => 'Vermarktungsart der Einheit (Kauf / Miete)'),
+            'building_marketing_type'=> array('type' => 'string', 'description' => 'Vermarktung des Gebäudes (sale / rent / leer=gemischt)'),
 
             // === Adresse ===
             'street'                 => array('type' => 'string', 'description' => 'Straße'),
