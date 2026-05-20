@@ -280,7 +280,14 @@
     }
 
     @media (max-width: 767px) {
-        :where(.brxe-immoadmin-units-table) [data-mobile-visible="0"] {
+        /* Hide both header AND data cells of a column when the column is
+         * flagged mobile_visible=false. We list both selectors explicitly
+         * (instead of relying on a bare [data-mobile-visible="0"]) so any
+         * Bricks-generated per-instance styles targeting
+         * `.immoadmin-table-cell-header` can't accidentally outrank the rule
+         * via specificity / cascade-layer ordering. */
+        .brxe-immoadmin-units-table .immoadmin-table-cell-header[data-mobile-visible="0"],
+        .brxe-immoadmin-units-table .immoadmin-table-cell[data-mobile-visible="0"] {
             display: none !important;
         }
         :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header,
