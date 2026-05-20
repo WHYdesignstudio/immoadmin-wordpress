@@ -125,6 +125,7 @@ class ImmoAdmin_Post_Type {
             'loggia_area'            => array('type' => 'number', 'description' => 'Loggiafläche (m²)'),
             'garden_area'            => array('type' => 'number', 'description' => 'Gartenfläche (m²)'),
             'basement_area'          => array('type' => 'number', 'description' => 'Kellerfläche (m²)'),
+            'basement_label'         => array('type' => 'string', 'description' => 'Kellerabteil-Bezeichnung (z.B. KA 26)'),
             'storage_area'           => array('type' => 'number', 'description' => 'Abstellraumfläche (m²)'),
 
             // === Zimmer ===
@@ -140,7 +141,9 @@ class ImmoAdmin_Post_Type {
             'rent_cold'              => array('type' => 'number', 'description' => 'Kaltmiete (€)'),
             'rent_warm'              => array('type' => 'number', 'description' => 'Warmmiete (€)'),
             'operating_costs'        => array('type' => 'number', 'description' => 'Betriebskosten (€)'),
+            'heating_costs'          => array('type' => 'number', 'description' => 'Heizkosten Akonto (€ / Monat)'),
             'deposit'                => array('type' => 'number', 'description' => 'Kaution (€)'),
+            'minimum_income'         => array('type' => 'number', 'description' => 'Mindesteinkommen für Mietverhältnis (€ / Monat)'),
             'commission'             => array('type' => 'string', 'description' => 'Provision'),
             'price_per_sqm'          => array('type' => 'number', 'description' => 'Preis pro m² (€)'),
 

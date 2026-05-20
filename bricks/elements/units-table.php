@@ -645,7 +645,10 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'Dachterrasse'     => '{cf_roof_terrace_area_formatted}',
             'Freifläche gesamt'=> '{cf_outdoor_area_total_formatted}',
             'Ausrichtung'      => '{cf_orientation}',
+            'Kellerabteil'     => '{cf_basement_label}',
             'Kaufpreis'        => '{cf_purchase_price_formatted}',
+            'Heizkosten'       => '{cf_heating_costs_formatted}',
+            'Mindesteinkommen' => '{cf_minimum_income_formatted}',
             'Exposé'           => '{cf_document_1_url}',
             'Status'           => '{cf_status}',
         ];
