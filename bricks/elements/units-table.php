@@ -647,8 +647,13 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'Ausrichtung'      => '{cf_orientation}',
             'Kellerabteil'     => '{cf_basement_label}',
             'Kaufpreis'        => '{cf_purchase_price_formatted}',
+            'Mietentgelt pro Monat' => '{cf_gross_rent_without_heating_formatted}',
             'Heizkosten'       => '{cf_heating_costs_formatted}',
+            'Heizkosten brutto'=> '{cf_heating_costs_gross_formatted}',
             'Mindesteinkommen' => '{cf_minimum_income_formatted}',
+            'Befristung'       => '{cf_rental_term_years}',
+            'Erstbezug ab'     => '{cf_first_occupancy_date_formatted}',
+            'klimaaktiv'       => '{cf_klimaaktiv_rating}',
             'Exposé'           => '{cf_document_1_url}',
             'Status'           => '{cf_status}',
         ];

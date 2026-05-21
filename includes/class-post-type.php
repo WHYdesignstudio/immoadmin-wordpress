@@ -142,14 +142,23 @@ class ImmoAdmin_Post_Type {
             'rent_warm'              => array('type' => 'number', 'description' => 'Warmmiete (€)'),
             'operating_costs'        => array('type' => 'number', 'description' => 'Betriebskosten (€)'),
             'heating_costs'          => array('type' => 'number', 'description' => 'Heizkosten Akonto (€ / Monat)'),
+            'vat_rent'               => array('type' => 'number', 'description' => 'USt auf Miete + BK (berechnet)'),
+            'vat_rent_formatted'     => array('type' => 'string', 'description' => 'USt formatiert'),
+            'gross_rent_without_heating'           => array('type' => 'number', 'description' => 'Mietentgelt brutto pro Monat ohne Heizung (berechnet)'),
+            'gross_rent_without_heating_formatted' => array('type' => 'string', 'description' => 'Mietentgelt formatiert'),
+            'heating_costs_gross'    => array('type' => 'number', 'description' => 'Heizkosten brutto inkl. USt (berechnet)'),
+            'heating_costs_gross_formatted' => array('type' => 'string', 'description' => 'Heizkosten brutto formatiert'),
             'deposit'                => array('type' => 'number', 'description' => 'Kaution (€)'),
             'minimum_income'         => array('type' => 'number', 'description' => 'Mindesteinkommen für Mietverhältnis (€ / Monat)'),
+            'rental_term_years'      => array('type' => 'integer', 'description' => 'Befristung der Miete (Jahre)'),
             'commission'             => array('type' => 'string', 'description' => 'Provision'),
             'price_per_sqm'          => array('type' => 'number', 'description' => 'Preis pro m² (€)'),
 
             // === Gebäude ===
             'construction_year'      => array('type' => 'integer', 'description' => 'Baujahr'),
             'renovation_year'        => array('type' => 'integer', 'description' => 'Renovierungsjahr'),
+            'first_occupancy_date'           => array('type' => 'string', 'description' => 'Erstbezug ab (YYYY-MM-DD)'),
+            'first_occupancy_date_formatted' => array('type' => 'string', 'description' => 'Erstbezug ab (formatiert, DD.MM.YYYY)'),
             'condition'              => array('type' => 'string', 'description' => 'Zustand'),
             'equipment'              => array('type' => 'string', 'description' => 'Ausstattung'),
             'heating_type'           => array('type' => 'string', 'description' => 'Heizungsart'),
@@ -160,6 +169,7 @@ class ImmoAdmin_Post_Type {
             'hwb_class'              => array('type' => 'string', 'description' => 'HWB-Klasse (A++ bis G)'),
             'fgee'                   => array('type' => 'number', 'description' => 'fGEE'),
             'fgee_class'             => array('type' => 'string', 'description' => 'fGEE-Klasse (A++ bis G)'),
+            'klimaaktiv_rating'      => array('type' => 'string', 'description' => 'klimaaktiv-Rating (bronze/silber/gold)'),
 
             // === Parkplätze ===
             'parking_spaces'         => array('type' => 'integer', 'description' => 'Stellplätze gesamt'),
