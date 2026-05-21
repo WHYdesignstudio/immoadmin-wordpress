@@ -67,10 +67,23 @@ function immoadmin_feature_label($key) {
  * Accepts both raw arrays (newer WP) and JSON strings (current sync format).
  */
 function immoadmin_unit_features_raw($post_id = 0) {
-    $post_id = $post_id ?: get_the_ID();
+    // Resolve post id across contexts (loop, archive, single, Bricks builder).
+    if (!$post_id) {
+        $post_id = get_the_ID();
+    }
+    if (!$post_id) {
+        $post_id = get_queried_object_id();
+    }
+    // Bricks builder preview: the post id is passed via GET parameter.
+    if (!$post_id && isset($_GET['bricks_preview']) && isset($_GET['post_id'])) {
+        $post_id = (int) $_GET['post_id'];
+    }
+    if (!$post_id && isset($_GET['p'])) {
+        $post_id = (int) $_GET['p'];
+    }
     if (!$post_id) return array();
     $raw = get_post_meta($post_id, 'features', true);
-    if (is_array($raw)) return array_filter($raw, 'is_string');
+    if (is_array($raw)) return array_values(array_filter($raw, 'is_string'));
     if (is_string($raw) && $raw !== '') {
         $decoded = json_decode($raw, true);
         if (is_array($decoded)) return array_values(array_filter($decoded, 'is_string'));
