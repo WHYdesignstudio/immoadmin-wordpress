@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.5.4
+ * Version: 2.5.5
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,18 +30,35 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.5.4');
+define('IMMOADMIN_VERSION', '2.5.5');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
 define('IMMOADMIN_MEDIA_DIR', IMMOADMIN_DATA_DIR . 'media/');
 
 // Autoload classes
-require_once IMMOADMIN_PLUGIN_DIR . 'includes/class-post-type.php';
-require_once IMMOADMIN_PLUGIN_DIR . 'includes/class-sync.php';
-require_once IMMOADMIN_PLUGIN_DIR . 'includes/class-admin.php';
-require_once IMMOADMIN_PLUGIN_DIR . 'includes/class-webhook.php';
-require_once IMMOADMIN_PLUGIN_DIR . 'includes/bricks-helpers.php';
+// Defensive loader: file_exists() guard avoids WSOD if PUC delivered a
+// partial update and a file is missing. The plugin will load whatever
+// classes are present and surface an admin notice for the rest.
+foreach (array(
+    'includes/class-post-type.php',
+    'includes/class-sync.php',
+    'includes/class-admin.php',
+    'includes/class-webhook.php',
+    'includes/bricks-helpers.php',
+) as $immoadmin_inc) {
+    $immoadmin_path = IMMOADMIN_PLUGIN_DIR . $immoadmin_inc;
+    if (file_exists($immoadmin_path)) {
+        require_once $immoadmin_path;
+    } else {
+        $immoadmin_missing = $immoadmin_inc;
+        add_action('admin_notices', function () use ($immoadmin_missing) {
+            echo '<div class="notice notice-error"><p><strong>ImmoAdmin:</strong> Datei fehlt: '
+                . esc_html($immoadmin_missing)
+                . ' — Plugin bitte neu installieren.</p></div>';
+        });
+    }
+}
 
 /**
  * Main plugin class

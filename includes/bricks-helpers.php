@@ -17,6 +17,7 @@ if (!defined('ABSPATH')) {
  * German labels for the standard feature keys + direction values.
  * Falls back to the raw key if no label is mapped.
  */
+if (!function_exists('immoadmin_feature_label')) {
 function immoadmin_feature_label($key) {
     if (!is_string($key) || $key === '') return '';
     $labels = array(
@@ -61,7 +62,9 @@ function immoadmin_feature_label($key) {
     );
     return isset($labels[$key]) ? $labels[$key] : $key;
 }
+}
 
+if (!function_exists('immoadmin_unit_features_raw')) {
 /**
  * Decode a unit's features meta into a PHP array of strings.
  * Accepts both raw arrays (newer WP) and JSON strings (current sync format).
@@ -90,7 +93,9 @@ function immoadmin_unit_features_raw($post_id = 0) {
     }
     return array();
 }
+}
 
+if (!function_exists('immoadmin_unit_amenities')) {
 /**
  * Amenities only (features WITHOUT direction values).
  * Returns an array of [ 'key' => ..., 'label' => ... ] so a Bricks Array
@@ -109,7 +114,9 @@ function immoadmin_unit_amenities($post_id = 0) {
     }
     return $out;
 }
+}
 
+if (!function_exists('immoadmin_unit_orientations')) {
 /**
  * Orientations only (direction values from the features array).
  * Returns an array of [ 'key' => 'west', 'label' => 'West' ] so the same
@@ -128,6 +135,7 @@ function immoadmin_unit_orientations($post_id = 0) {
         }
     }
     return $out;
+}
 }
 
 /**
