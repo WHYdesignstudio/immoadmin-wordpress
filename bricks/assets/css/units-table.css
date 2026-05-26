@@ -290,6 +290,16 @@
         .brxe-immoadmin-units-table .immoadmin-table-cell[data-mobile-visible="0"] {
             display: none !important;
         }
+        /* Re-template the grid for the mobile-visible column count. Without
+         * this override, the grid still runs with all desktop tracks even
+         * though some cells are display:none — cells from the next row then
+         * flow into the missing slots of the previous row, making the table
+         * look like rows are merged horizontally. The PHP-side sets
+         * --iat-mobile-grid-cols from the subset of columns where
+         * mobile_visible=true. */
+        .brxe-immoadmin-units-table .immoadmin-table {
+            grid-template-columns: var(--iat-mobile-grid-cols, var(--iat-grid-cols, repeat(var(--iat-mobile-cols, 1), minmax(min-content, 1fr))));
+        }
         :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header,
         :where(.brxe-immoadmin-units-table) .immoadmin-table-cell {
             padding: 8px 10px;

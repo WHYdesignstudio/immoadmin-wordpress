@@ -746,11 +746,29 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ? 'max-content'
             : 'minmax(min-content, 1fr)';
         $tracks = [];
+        $mobile_tracks = [];
+        $mobile_count = 0;
         foreach ($columns as $col) {
-            $tracks[] = !empty($col['compact']) ? 'max-content' : $default_track;
+            $track = !empty($col['compact']) ? 'max-content' : $default_track;
+            $tracks[] = $track;
+            // Mobile-visible columns get their own track list so the @media
+            // override can re-template the grid to the correct visible count.
+            // Without this, hidden cells (display:none) leave the grid still
+            // expecting N tracks per row → cells from the next row flow into
+            // the gap and visually collide with the previous row.
+            if (!empty($col['mobile_visible'])) {
+                $mobile_tracks[] = $track;
+                $mobile_count++;
+            }
         }
         $grid_template = !empty($tracks) ? implode(' ', $tracks) : $default_track;
-        $this->set_attribute('_root', 'style', '--iat-grid-cols: ' . $grid_template . '; --iat-cols: ' . max(1, count($columns)));
+        $mobile_grid_template = !empty($mobile_tracks) ? implode(' ', $mobile_tracks) : $grid_template;
+        $this->set_attribute('_root', 'style',
+            '--iat-grid-cols: ' . $grid_template
+            . '; --iat-cols: ' . max(1, count($columns))
+            . '; --iat-mobile-grid-cols: ' . $mobile_grid_template
+            . '; --iat-mobile-cols: ' . max(1, $mobile_count)
+        );
         // Surface the query element id to JS so it can refetch via Bricks filter system.
         $this->set_attribute('_root', 'data-bricks-query-id', $this->id);
 
