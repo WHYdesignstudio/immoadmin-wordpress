@@ -14,12 +14,19 @@ class ImmoAdmin_Admin {
      */
     public static function render_dashboard() {
         if (!current_user_can('manage_options')) {
-            wp_die(__('Zugriff verweigert.'));
+            wp_die(__('Zugriff verweigert.', 'immoadmin'));
         }
 
+        // wp_unslash() is required before passing $_POST to wp_verify_nonce on hosts that
+        // still add magic quotes; sanitize_text_field strips bad bytes. Mirror this on every
+        // $_POST/$_GET read in this file.
+        $nonce = isset($_POST['_wpnonce']) ? sanitize_text_field(wp_unslash($_POST['_wpnonce'])) : '';
+
         // Handle token save (always process this first)
-        if (isset($_POST['immoadmin_save_token']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_save_token')) {
-            $new_token = trim(sanitize_text_field($_POST['immoadmin_token']));
+        if (isset($_POST['immoadmin_save_token']) && wp_verify_nonce($nonce, 'immoadmin_save_token')) {
+            $new_token = isset($_POST['immoadmin_token'])
+                ? trim(sanitize_text_field(wp_unslash($_POST['immoadmin_token'])))
+                : '';
             // Store hash of token, not the token itself (security)
             $token_hash = hash('sha256', $new_token);
             update_option('immoadmin_webhook_token_hash', $token_hash);
@@ -33,7 +40,7 @@ class ImmoAdmin_Admin {
         }
 
         // Handle disconnect
-        if (isset($_POST['immoadmin_disconnect']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_disconnect')) {
+        if (isset($_POST['immoadmin_disconnect']) && wp_verify_nonce($nonce, 'immoadmin_disconnect')) {
             delete_option('immoadmin_webhook_token');
             delete_option('immoadmin_webhook_token_hash');
             delete_option('immoadmin_webhook_token_masked');
@@ -59,7 +66,7 @@ class ImmoAdmin_Admin {
         }
 
         // Handle cleanup old meta
-        if (isset($_POST['immoadmin_cleanup']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_cleanup')) {
+        if (isset($_POST['immoadmin_cleanup']) && wp_verify_nonce($nonce, 'immoadmin_cleanup')) {
             $cleanup_result = ImmoAdmin_Sync::cleanup_old_meta();
             $cleanup_message = $cleanup_result['cleaned'] . ' Content-Hashes von ' . $cleanup_result['posts'] . ' Posts zurückgesetzt. Re-Sync gestartet...';
             $cleanup_success = true;
@@ -72,7 +79,7 @@ class ImmoAdmin_Admin {
         }
 
         // Handle Bricks integration toggle save
-        if (isset($_POST['immoadmin_save_bricks']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_save_bricks')) {
+        if (isset($_POST['immoadmin_save_bricks']) && wp_verify_nonce($nonce, 'immoadmin_save_bricks')) {
             $enabled = !empty($_POST['immoadmin_bricks_enabled']);
             update_option('immoadmin_bricks_enabled', $enabled ? 1 : 0);
             $bricks_message = $enabled
@@ -82,7 +89,7 @@ class ImmoAdmin_Admin {
         }
 
         // Handle manual sync (run in background so progress is tracked)
-        if (isset($_POST['immoadmin_sync']) && wp_verify_nonce($_POST['_wpnonce'], 'immoadmin_sync')) {
+        if (isset($_POST['immoadmin_sync']) && wp_verify_nonce($nonce, 'immoadmin_sync')) {
             wp_clear_scheduled_hook('immoadmin_background_sync');
             wp_schedule_single_event(time(), 'immoadmin_background_sync');
             spawn_cron();

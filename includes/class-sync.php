@@ -40,34 +40,25 @@ class ImmoAdmin_Sync {
     public static function run($json_file = null) {
         $start_time = microtime(true);
 
-        // Find JSON file
-        if (!$json_file) {
-            $json_file = self::find_json_file();
-        }
-
-        if (!$json_file || !file_exists($json_file)) {
+        // Always process EVERY *.json in the data dir, not just the most recently
+        // pushed file. Multi-project sites push one JSON per project (named by
+        // projectSlug), and the deletion pass below treats anything NOT in the
+        // current payload as removable — so processing only one file would
+        // silently nuke the other projects' posts.
+        //
+        // The $json_file argument is kept for backwards compatibility but is now
+        // informational: it just tells us which write triggered the sync.
+        if (!is_dir(IMMOADMIN_DATA_DIR)) {
             return array(
                 'success' => false,
                 'error' => 'JSON-Datei nicht gefunden',
             );
         }
-
-        // Read and parse JSON
-        $json_content = file_get_contents($json_file);
-        $data = json_decode($json_content, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
+        $json_files = glob(IMMOADMIN_DATA_DIR . '*.json') ?: array();
+        if (empty($json_files)) {
             return array(
                 'success' => false,
-                'error' => 'JSON-Parse-Fehler: ' . json_last_error_msg(),
-            );
-        }
-
-        // Validate format
-        if (empty($data['_format']) || $data['_format'] !== 'immoadmin-sync') {
-            return array(
-                'success' => false,
-                'error' => 'Ungültiges JSON-Format',
+                'error' => 'JSON-Datei nicht gefunden',
             );
         }
 
@@ -81,50 +72,74 @@ class ImmoAdmin_Sync {
             'errors' => array(),
         );
 
-        // Get existing posts mapped by ImmoAdmin ID
+        // Get existing posts mapped by ImmoAdmin ID (once, shared across all files).
         $existing_posts = self::get_existing_posts();
-
-        // Process units
         $processed_ids = array();
-        $total_units = !empty($data['units']) ? count($data['units']) : 0;
-        $current_unit = 0;
 
-        if (!empty($data['units'])) {
-            foreach ($data['units'] as $unit) {
-                $current_unit++;
-
-                // Update progress so the admin dashboard can show it
-                update_option('immoadmin_sync_progress', array(
-                    'current' => $current_unit,
-                    'total' => $total_units,
-                    'unit_title' => $unit['title'] ?? '',
-                    'stats' => $stats,
-                ), false); // false = don't autoload
-
-                $result = self::sync_unit($unit, $existing_posts, $data['meta']['baseUrl'] ?? '');
-                $processed_ids[] = $unit['id'];
-
-                if ($result['status'] === 'created') {
-                    $stats['created']++;
-                } elseif ($result['status'] === 'updated') {
-                    $stats['updated']++;
-                } elseif ($result['status'] === 'skipped') {
-                    $stats['skipped']++;
-                } elseif ($result['status'] === 'error') {
-                    $stats['errors'][] = $result['error'];
-                }
-
-                if (!empty($result['media_downloaded'])) {
-                    $stats['media_downloaded'] += $result['media_downloaded'];
-                }
+        // Total unit count across all files for the progress UI.
+        $all_units = array();
+        foreach ($json_files as $file) {
+            $payload = json_decode((string) file_get_contents($file), true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $stats['errors'][] = basename($file) . ': JSON-Parse-Fehler: ' . json_last_error_msg();
+                continue;
+            }
+            if (empty($payload['_format']) || $payload['_format'] !== 'immoadmin-sync') {
+                $stats['errors'][] = basename($file) . ': Ungültiges JSON-Format';
+                continue;
+            }
+            $units = !empty($payload['units']) ? $payload['units'] : array();
+            foreach ($units as $unit) {
+                $all_units[] = array(
+                    'unit' => $unit,
+                    'baseUrl' => isset($payload['meta']['baseUrl']) ? $payload['meta']['baseUrl'] : '',
+                );
             }
         }
 
-        // Delete posts that are no longer in JSON
-        foreach ($existing_posts as $immoadmin_id => $post_id) {
-            if (!in_array($immoadmin_id, $processed_ids)) {
-                wp_delete_post($post_id, true);
-                $stats['deleted']++;
+        $total_units = count($all_units);
+        $current_unit = 0;
+
+        foreach ($all_units as $entry) {
+            $unit = $entry['unit'];
+            $current_unit++;
+
+            // Update progress so the admin dashboard can show it
+            update_option('immoadmin_sync_progress', array(
+                'current' => $current_unit,
+                'total' => $total_units,
+                'unit_title' => $unit['title'] ?? '',
+                'stats' => $stats,
+            ), false); // false = don't autoload
+
+            $result = self::sync_unit($unit, $existing_posts, $entry['baseUrl']);
+            $processed_ids[] = (string) ($unit['id'] ?? '');
+
+            if ($result['status'] === 'created') {
+                $stats['created']++;
+            } elseif ($result['status'] === 'updated') {
+                $stats['updated']++;
+            } elseif ($result['status'] === 'skipped') {
+                $stats['skipped']++;
+            } elseif ($result['status'] === 'error') {
+                $stats['errors'][] = $result['error'];
+            }
+
+            if (!empty($result['media_downloaded'])) {
+                $stats['media_downloaded'] += $result['media_downloaded'];
+            }
+        }
+
+        // Delete posts that are no longer present in ANY processed JSON file.
+        // Important: only run the deletion pass when at least one file was successfully
+        // parsed AND produced units — otherwise a transient empty/broken sync would
+        // wipe all posts.
+        if ($total_units > 0) {
+            foreach ($existing_posts as $immoadmin_id => $post_id) {
+                if (!in_array((string) $immoadmin_id, $processed_ids, true)) {
+                    wp_delete_post($post_id, true);
+                    $stats['deleted']++;
+                }
             }
         }
 
