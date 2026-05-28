@@ -16,6 +16,14 @@
         var urlState = table.dataset.urlState === '1';
 
         // ------------------------------------------------------------------
+        // Scroll hint: show the animated swipe overlay only when the table
+        // actually overflows, then hide on first scroll or after a timeout.
+        // Hint markup is rendered server-side only when both horizontal_scroll
+        // and scroll_hint_enabled controls are on.
+        // ------------------------------------------------------------------
+        initScrollHint(table);
+
+        // ------------------------------------------------------------------
         // Accordion toggle (delegated; survives DOM swaps via BricksFunction
         // re-init).
         // ------------------------------------------------------------------
@@ -191,6 +199,79 @@
     function cssEscape(s) {
         if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(s);
         return String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+    }
+
+    /**
+     * Wire up the scroll-hint overlay for one units-table element.
+     *
+     * Activates the hint only when the scrollable wrapper actually overflows
+     * (scrollWidth > clientWidth + tolerance). Hides it on first user scroll,
+     * after AUTO_HIDE_MS, or as soon as overflow disappears (resize, font
+     * load, table swap). Safe to call multiple times — re-runs the overflow
+     * check against the current DOM state.
+     */
+    function initScrollHint(table) {
+        var AUTO_HIDE_MS = 6000;
+        var OVERFLOW_TOLERANCE_PX = 4; // sub-pixel rounding guard
+
+        var scroller = table.querySelector('.immoadmin-table-scroll[data-scroll-hint="1"]');
+        var hint = table.querySelector('.immoadmin-table-scroll-hint');
+        if (!scroller || !hint) return;
+
+        var hidden = false;
+        var hideTimer = null;
+
+        function hideHint() {
+            if (hidden) return;
+            hidden = true;
+            hint.removeAttribute('data-active');
+            if (hideTimer) {
+                clearTimeout(hideTimer);
+                hideTimer = null;
+            }
+            scroller.removeEventListener('scroll', onScroll);
+            if (resizeObs) resizeObs.disconnect();
+        }
+
+        function showHint() {
+            if (hidden) return;
+            hint.setAttribute('data-active', '1');
+        }
+
+        function checkOverflow() {
+            if (hidden) return;
+            var overflows = scroller.scrollWidth - scroller.clientWidth > OVERFLOW_TOLERANCE_PX;
+            if (overflows) {
+                showHint();
+            } else {
+                // No overflow yet — keep listening for later layout changes
+                // (font load, async data, container resize) but don't show.
+                hint.removeAttribute('data-active');
+            }
+        }
+
+        function onScroll() {
+            // Any user-initiated horizontal scroll = user understood. Hide.
+            if (scroller.scrollLeft > 2) hideHint();
+        }
+
+        scroller.addEventListener('scroll', onScroll, { passive: true });
+
+        // ResizeObserver covers: window resize, container size changes,
+        // table swap via Bricks AJAX, font load shifts.
+        var resizeObs = null;
+        if (typeof ResizeObserver === 'function') {
+            resizeObs = new ResizeObserver(checkOverflow);
+            resizeObs.observe(scroller);
+            // Also observe the inner table so column-width changes (sort, filter
+            // result reshuffle) re-trigger the check.
+            var inner = scroller.querySelector('.immoadmin-table');
+            if (inner) resizeObs.observe(inner);
+        }
+
+        // Initial check + auto-hide timer.
+        checkOverflow();
+        hideTimer = setTimeout(hideHint, AUTO_HIDE_MS);
     }
 
     function initAll() {

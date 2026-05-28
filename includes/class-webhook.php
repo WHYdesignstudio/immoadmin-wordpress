@@ -36,32 +36,119 @@ class ImmoAdmin_Webhook {
     }
 
     /**
+     * Determine the real client IP, even behind Cloudflare / Coolify reverse proxies.
+     *
+     * Order of preference:
+     *   1. CF-Connecting-IP (Cloudflare, single trusted IP)
+     *   2. X-Forwarded-For (first hop = original client)
+     *   3. REMOTE_ADDR (direct connection)
+     *
+     * All values are sanitized and IP-validated. Returns 'unknown' if nothing usable.
+     */
+    private static function get_client_ip() {
+        $candidates = array();
+
+        if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+            $candidates[] = sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_CONNECTING_IP']));
+        }
+
+        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            $xff = sanitize_text_field(wp_unslash($_SERVER['HTTP_X_FORWARDED_FOR']));
+            // XFF can be a comma-separated chain — the first hop is the real client.
+            $parts = explode(',', $xff);
+            $candidates[] = trim($parts[0]);
+        }
+
+        if (!empty($_SERVER['REMOTE_ADDR'])) {
+            $candidates[] = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR']));
+        }
+
+        foreach ($candidates as $candidate) {
+            if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+                return $candidate;
+            }
+        }
+
+        return 'unknown';
+    }
+
+    /**
+     * Increment a rate-limit bucket. Returns true if request is allowed,
+     * false if the bucket is exhausted.
+     */
+    private static function consume_rate_bucket($key, $limit, $window = 60) {
+        $requests = (int) get_transient($key);
+        if ($requests >= $limit) {
+            return false;
+        }
+        set_transient($key, $requests + 1, $window);
+        return true;
+    }
+
+    /**
      * Verify webhook request (token + signature, both required)
+     *
+     * Rate limiting model:
+     *   - Pre-auth check: only verifies the bucket is not already exhausted (no increment).
+     *   - Post-auth (on FAILURE): increments two buckets — by-IP and by-token-prefix —
+     *     so a flood of bogus requests can't lock out the real backend's token bucket,
+     *     and a single misbehaving proxy IP can't either.
+     *   - Successful auth does NOT consume budget.
      */
     public static function verify_token($request) {
-        // Rate limiting: max 20 requests per minute per IP
-        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-        $rate_key = 'immoadmin_rate_' . md5($ip);
-        $requests = (int) get_transient($rate_key);
-        if ($requests >= 20) {
+        $ip = self::get_client_ip();
+        $ip_rate_key = 'immoadmin_rate_ip_' . md5($ip);
+
+        // Pre-check: if IP bucket is already full, reject immediately without
+        // doing any token work. We DO NOT increment here.
+        if ((int) get_transient($ip_rate_key) >= 20) {
             return new WP_Error(
                 'rate_limited',
                 'Zu viele Anfragen',
                 array('status' => 429)
             );
         }
-        set_transient($rate_key, $requests + 1, 60);
 
         // Token MUST come from header (never from query params - those leak in logs)
         $token = $request->get_header('X-Auth-Token');
         $signature = $request->get_header('X-Signature');
         $timestamp = $request->get_header('X-Timestamp');
 
+        // Helper to record a failed auth attempt against both IP and token-prefix buckets.
+        $record_failure = function ($token_for_bucket) use ($ip_rate_key) {
+            // IP bucket: 20 / minute
+            $ip_requests = (int) get_transient($ip_rate_key);
+            set_transient($ip_rate_key, $ip_requests + 1, 60);
+
+            // Per-token bucket keyed on a short hash prefix of the supplied token.
+            // This lets a legit high-traffic backend share a bucket with itself
+            // but isolates it from junk tokens.
+            if (!empty($token_for_bucket)) {
+                $token_bucket_key = 'immoadmin_rate_tok_' . substr(hash('sha256', $token_for_bucket), 0, 16);
+                $token_requests = (int) get_transient($token_bucket_key);
+                set_transient($token_bucket_key, $token_requests + 1, 60);
+            }
+        };
+
         if (empty($token)) {
+            $record_failure('');
             return new WP_Error(
                 'unauthorized',
                 'Auth-Token fehlt',
                 array('status' => 401)
+            );
+        }
+
+        // Trim token early so the bucket key is stable
+        $token = trim($token);
+
+        // Per-token rate limit (200 / minute — generous, only meaningful for the real token)
+        $token_bucket_key = 'immoadmin_rate_tok_' . substr(hash('sha256', $token), 0, 16);
+        if ((int) get_transient($token_bucket_key) >= 200) {
+            return new WP_Error(
+                'rate_limited',
+                'Zu viele Anfragen (Token)',
+                array('status' => 429)
             );
         }
 
@@ -78,13 +165,11 @@ class ImmoAdmin_Webhook {
             }
         }
 
-        // Trim token
-        $token = trim($token);
-
         // Verify token by comparing hashes
         $received_hash = hash('sha256', $token);
 
         if (empty($stored_hash) || !hash_equals($stored_hash, $received_hash)) {
+            $record_failure($token);
             return new WP_Error(
                 'unauthorized',
                 'Ungültiger Token',
@@ -94,6 +179,7 @@ class ImmoAdmin_Webhook {
 
         // Signature + Timestamp are REQUIRED (prevents replay attacks)
         if (empty($signature) || empty($timestamp)) {
+            $record_failure($token);
             return new WP_Error(
                 'unauthorized',
                 'Signatur und Timestamp erforderlich',
@@ -106,6 +192,7 @@ class ImmoAdmin_Webhook {
         $current_time = time();
 
         if (abs($current_time - $request_time) > 300) {
+            $record_failure($token);
             return new WP_Error(
                 'unauthorized',
                 'Request abgelaufen (Timestamp zu alt)',
@@ -118,6 +205,7 @@ class ImmoAdmin_Webhook {
         $expected_signature = hash_hmac('sha256', $timestamp . $body, $token);
 
         if (!hash_equals($expected_signature, $signature)) {
+            $record_failure($token);
             return new WP_Error(
                 'unauthorized',
                 'Ungültige Signatur',
@@ -125,6 +213,7 @@ class ImmoAdmin_Webhook {
             );
         }
 
+        // Auth succeeded — do NOT consume any rate-limit budget.
         return true;
     }
 

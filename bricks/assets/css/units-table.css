@@ -15,6 +15,8 @@
         --iat-color-reserved: #f59e0b;
         --iat-color-sold: #ef4444;
         --iat-transition: var(--bricks-transition, all 0.2s ease);
+        /* Anchor for the absolutely-positioned scroll hint overlay. */
+        position: relative;
         display: block;
         width: 100%;
     }
@@ -23,6 +25,92 @@
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
         max-width: 100%;
+    }
+
+    /* ----------------------------------------------------------------- */
+    /* Scroll hint                                                        */
+    /*                                                                    */
+    /* Sibling of .immoadmin-table-scroll so it stays fixed visually      */
+    /* while the table scrolls. JS adds [data-active="1"] on init when    */
+    /* the table is actually wider than the wrapper, then removes it on   */
+    /* first scroll / auto-hide. Default-hidden so SSR before JS doesn't  */
+    /* flash a hint on tables that aren't scrollable.                     */
+    /* ----------------------------------------------------------------- */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll-hint {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(20, 20, 20, 0.78);
+        color: #fff;
+        font-size: 12px;
+        line-height: 1;
+        pointer-events: none;
+        opacity: 0;
+        transform: translateY(4px);
+        transition: opacity 240ms ease, transform 240ms ease;
+        z-index: 2;
+    }
+
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll-hint[data-active="1"] {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll-hint__icon {
+        width: 36px;
+        height: 24px;
+        display: block;
+        color: currentColor;
+    }
+
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll-hint__label {
+        white-space: nowrap;
+        letter-spacing: 0.02em;
+    }
+
+    /* Chevrons pulse outward; hand bobs left↔right. Loops while [data-active]. */
+    @keyframes immoadmin-scroll-hint-chevron-left {
+        0%, 100% { transform: translateX(0); opacity: 0.6; }
+        50%      { transform: translateX(-3px); opacity: 1; }
+    }
+    @keyframes immoadmin-scroll-hint-chevron-right {
+        0%, 100% { transform: translateX(0); opacity: 0.6; }
+        50%      { transform: translateX(3px); opacity: 1; }
+    }
+    @keyframes immoadmin-scroll-hint-hand {
+        0%, 100% { transform: translateX(-3px); }
+        50%      { transform: translateX(3px); }
+    }
+
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll-hint[data-active="1"] .immoadmin-table-scroll-hint__chevron--left {
+        transform-origin: center;
+        transform-box: fill-box;
+        animation: immoadmin-scroll-hint-chevron-left 1.6s ease-in-out infinite;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll-hint[data-active="1"] .immoadmin-table-scroll-hint__chevron--right {
+        transform-origin: center;
+        transform-box: fill-box;
+        animation: immoadmin-scroll-hint-chevron-right 1.6s ease-in-out infinite;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll-hint[data-active="1"] .immoadmin-table-scroll-hint__hand {
+        transform-origin: center;
+        transform-box: fill-box;
+        animation: immoadmin-scroll-hint-hand 1.6s ease-in-out infinite;
+    }
+
+    /* Honour accessibility preference: drop the wiggle animation, keep the
+     * static hint so users still see scrollability is possible. */
+    @media (prefers-reduced-motion: reduce) {
+        :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll-hint[data-active="1"] .immoadmin-table-scroll-hint__chevron--left,
+        :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll-hint[data-active="1"] .immoadmin-table-scroll-hint__chevron--right,
+        :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll-hint[data-active="1"] .immoadmin-table-scroll-hint__hand {
+            animation: none;
+        }
     }
 
     :where(.brxe-immoadmin-units-table) .immoadmin-table {

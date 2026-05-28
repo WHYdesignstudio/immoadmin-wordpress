@@ -348,13 +348,29 @@ class ImmoAdmin_Sync {
                   AND pm.meta_value != ''
             ");
 
-            // Index by basename for O(1) lookups during the file scan
+            // Index by basename for O(1) lookups during the file scan.
+            //
+            // CRITICAL: must apply the EXACT same transformation that download_media()
+            // uses to derive the on-disk filename — otherwise URLs containing umlauts,
+            // spaces, or other characters changed by sanitize_file_name() will not
+            // match the actual file on disk, and we'd wrongly classify it as orphan
+            // and delete legitimate cached media.
             $referenced = array();
             if (!empty($referenced_urls)) {
                 foreach ($referenced_urls as $url) {
-                    $filename = basename(parse_url($url, PHP_URL_PATH));
+                    // 1. Remote URLs — apply sanitize_file_name() to match the downloader.
+                    // 2. Already-local URLs (content_url('/immoadmin/media/...')) — basename
+                    //    is already the sanitized on-disk name, but applying
+                    //    sanitize_file_name() again is idempotent so this is safe.
+                    $raw_basename = basename(parse_url($url, PHP_URL_PATH));
+                    $filename = sanitize_file_name($raw_basename);
                     if (!empty($filename)) {
                         $referenced[$filename] = true;
+                    }
+                    // Belt-and-suspenders: also index the un-sanitized basename in
+                    // case any legacy meta predates the sanitizer change.
+                    if (!empty($raw_basename) && $raw_basename !== $filename) {
+                        $referenced[$raw_basename] = true;
                     }
                 }
             }
