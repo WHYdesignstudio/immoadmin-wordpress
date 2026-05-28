@@ -218,6 +218,22 @@
         var hint = table.querySelector('.immoadmin-table-scroll-hint');
         if (!scroller || !hint) return;
 
+        // Pick the right label for the input device:
+        // (hover: hover) + (pointer: fine) ≈ mouse-driven desktop. Touch-only,
+        // hybrid (pen), or coarse-pointer devices keep the touch label.
+        // Matches at load only — re-checking on the fly would just flip text
+        // mid-animation if the user happens to plug in a mouse.
+        var labelEl = hint.querySelector('.immoadmin-table-scroll-hint__label');
+        if (labelEl && window.matchMedia) {
+            var isDesktopMouse = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+            var desktopLabel = hint.getAttribute('data-label-desktop');
+            var touchLabel = hint.getAttribute('data-label-touch');
+            var picked = isDesktopMouse ? desktopLabel : touchLabel;
+            if (picked != null && picked !== '') {
+                labelEl.textContent = picked;
+            }
+        }
+
         var hidden = false;
         var hideTimer = null;
 

@@ -330,10 +330,25 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $this->controls['scroll_hint_label'] = [
             'tab'         => 'content',
             'group'       => 'behavior',
-            'label'       => esc_html__('Scroll-Hinweis Text', 'immoadmin'),
+            'label'       => esc_html__('Scroll-Hinweis Text (Touch)', 'immoadmin'),
             'type'        => 'text',
             'default'     => esc_html__('Wischen', 'immoadmin'),
             'placeholder' => esc_html__('Wischen', 'immoadmin'),
+            'info'        => esc_html__('Wird auf Touch-Geräten angezeigt.', 'immoadmin'),
+            'required'    => [
+                ['horizontal_scroll', '!=', ''],
+                ['scroll_hint_enabled', '!=', ''],
+            ],
+        ];
+
+        $this->controls['scroll_hint_label_desktop'] = [
+            'tab'         => 'content',
+            'group'       => 'behavior',
+            'label'       => esc_html__('Scroll-Hinweis Text (Desktop)', 'immoadmin'),
+            'type'        => 'text',
+            'default'     => esc_html__('Scrollen', 'immoadmin'),
+            'placeholder' => esc_html__('Scrollen', 'immoadmin'),
+            'info'        => esc_html__('Wird auf Desktop mit Maus angezeigt (hover & fine pointer).', 'immoadmin'),
             'required'    => [
                 ['horizontal_scroll', '!=', ''],
                 ['scroll_hint_enabled', '!=', ''],
@@ -741,9 +756,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // and falsy). isset() check distinguishes "never touched" from "off".
         $scroll_hint_enabled = $horizontal_scroll
             && (!isset($settings['scroll_hint_enabled']) || !empty($settings['scroll_hint_enabled']));
-        $scroll_hint_label = !empty($settings['scroll_hint_label'])
+        $scroll_hint_label_touch = !empty($settings['scroll_hint_label'])
             ? (string) $settings['scroll_hint_label']
             : __('Wischen', 'immoadmin');
+        $scroll_hint_label_desktop = !empty($settings['scroll_hint_label_desktop'])
+            ? (string) $settings['scroll_hint_label_desktop']
+            : __('Scrollen', 'immoadmin');
         $url_state         = !empty($settings['url_state_enabled']);
         $url_state_key     = !empty($settings['url_state_key']) ? preg_replace('/[^a-z0-9_]/i', '', $settings['url_state_key']) : 'unit';
         $url_state_value_dd = !empty($settings['url_state_value']) ? $settings['url_state_value'] : '{post_id}';
@@ -922,7 +940,15 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                 // because it's purely decorative — JS removes the [data-active]
                 // flag when scrollWidth <= clientWidth, on first scroll, or after
                 // the auto-hide timeout. Inline SVG = no extra HTTP request.
-                echo '<div class="immoadmin-table-scroll-hint" aria-hidden="true">';
+                //
+                // Both touch and desktop labels are rendered server-side as data
+                // attributes; JS picks one at runtime based on (hover & fine
+                // pointer) media query and writes it into the visible span.
+                // Default span text is the touch label so SSR-only / no-JS
+                // visitors still see something sensible on mobile.
+                echo '<div class="immoadmin-table-scroll-hint" aria-hidden="true"'
+                    . ' data-label-touch="' . esc_attr($scroll_hint_label_touch) . '"'
+                    . ' data-label-desktop="' . esc_attr($scroll_hint_label_desktop) . '">';
                 echo '<svg class="immoadmin-table-scroll-hint__icon" viewBox="0 0 48 32" xmlns="http://www.w3.org/2000/svg" focusable="false">';
                 // Left chevron
                 echo '<path class="immoadmin-table-scroll-hint__chevron immoadmin-table-scroll-hint__chevron--left" d="M9 16l5-5v3h6v4h-6v3z" fill="currentColor"/>';
@@ -931,8 +957,9 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                 // Hand / finger swiping in the middle
                 echo '<path class="immoadmin-table-scroll-hint__hand" d="M24 6c-1.66 0-3 1.34-3 3v9c-.66-.66-1.5-1-2.5-1-1.93 0-3.5 1.57-3.5 3.5 0 .55.45 1 1 1 1.18 0 2.21.6 2.82 1.5l1.05 1.58c.92 1.38 2.47 2.2 4.13 2.2H27c2.76 0 5-2.24 5-5v-4c0-1.1-.9-2-2-2-.39 0-.74.11-1.04.3-.18-.87-.96-1.55-1.96-1.55-.39 0-.74.11-1.04.3C25.78 13.18 25 12.5 25 11.5V9c0-1.66-1.34-3-3-3z" fill="currentColor" opacity="0.85"/>';
                 echo '</svg>';
-                if ($scroll_hint_label !== '') {
-                    echo '<span class="immoadmin-table-scroll-hint__label">' . esc_html($scroll_hint_label) . '</span>';
+                if ($scroll_hint_label_touch !== '' || $scroll_hint_label_desktop !== '') {
+                    // Default text = touch label (best fallback for no-JS mobile).
+                    echo '<span class="immoadmin-table-scroll-hint__label">' . esc_html($scroll_hint_label_touch) . '</span>';
                 }
                 echo '</div>';
             }
