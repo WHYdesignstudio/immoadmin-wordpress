@@ -252,6 +252,50 @@
         background: rgba(59, 130, 246, 0.06); /* subtle highlight so designer sees which row is the "preview" */
     }
 
+    /* -----------------------------------------------------------------
+     * Oversized-content guard for the accordion panel
+     *
+     * In horizontal-scroll mode the table grid runs on max-content tracks
+     * and the panel spans every column (grid-column: 1 / -1). A wide child
+     * dropped into the panel via dynamic data — e.g. a full-resolution
+     * floor-plan image ({cf_floor_plan_N}) — would otherwise contribute its
+     * INTRINSIC width to the max-content sizing and stretch the whole table
+     * to thousands of px, pushing the panel content off-screen (looks like a
+     * blank/torn panel). `max-width: 100%` does NOT help here: a percentage
+     * is indefinite inside a max-content track and is ignored for intrinsic
+     * sizing. The fix is a DEFINITE cap tied to the visible width.
+     *
+     * Turn the scroll wrapper into a query container, then cap the panel (and
+     * its media) to 100cqw = the visible width. Content can no longer expand
+     * the grid regardless of the source image's dimensions; `sticky; left:0`
+     * keeps the panel pinned to the visible edge while the row scrolls.
+     * ----------------------------------------------------------------- */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll {
+        container-type: inline-size;
+    }
+    /* Non-:where so the cap reliably beats Bricks' per-element generated CSS. */
+    .brxe-immoadmin-units-table .immoadmin-accordion-panel {
+        max-width: 100cqw;
+        box-sizing: border-box;
+        position: sticky;
+        left: 0;
+    }
+    /* Let flex/grid children shrink below their content size instead of
+     * overflowing (otherwise a wide child still forces horizontal overflow
+     * inside the now-capped panel). */
+    :where(.brxe-immoadmin-units-table) .immoadmin-accordion-panel,
+    :where(.brxe-immoadmin-units-table) .immoadmin-accordion-panel * {
+        min-width: 0;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-accordion-panel :is(img, svg, video) {
+        max-width: 100%;
+        height: auto;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-accordion-panel pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
     /* Status modifiers (designer-targetable) */
     :where(.brxe-immoadmin-units-table) .is-available {}
     :where(.brxe-immoadmin-units-table) .is-reserved {}
