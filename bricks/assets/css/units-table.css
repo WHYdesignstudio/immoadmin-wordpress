@@ -302,7 +302,14 @@
     :where(.brxe-immoadmin-units-table) .is-sold {}
     :where(.brxe-immoadmin-units-table) .is-rented {}
 
-    :where(.brxe-immoadmin-units-table) .is-dimmed {
+    /* .is-dimmed lands on .immoadmin-table-row, which is display:contents —
+     * it has no box, so opacity/pointer-events on the row itself do nothing.
+     * Target the cells instead, same as .is-highlighted below. Per-cell
+     * opacity is fine here: the cells are opaque siblings, not nested boxes.
+     * Note this rule is purely cosmetic — keeping a dimmed row's accordion
+     * shut is NOT its job. Restricted rows get no panel and no tabindex in the
+     * first place (see render_row()), so nothing rides on pointer-events. */
+    :where(.brxe-immoadmin-units-table) .is-dimmed .immoadmin-table-cell {
         opacity: 0.5;
         pointer-events: none;
     }

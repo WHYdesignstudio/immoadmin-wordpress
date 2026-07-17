@@ -44,7 +44,23 @@
             });
         }
 
+        // Reserved / sold / rented rows are rendered without a panel, without
+        // tabindex and without .accordion-title-wrapper, so no toggle should
+        // ever reach them. Belt & braces: read the status the server wrote and
+        // refuse anyway — a stray class from a third-party script (or a Bricks
+        // AJAX swap racing us) must not be able to resurrect the toggle.
+        var RESTRICTED = ['reserved', 'sold', 'rented'];
+
+        function isRestricted(trigger) {
+            // data-status sits on .accordion-item in accordion mode and on the
+            // row itself in table mode; closest() covers both.
+            var scope = trigger.closest('[data-status]');
+            return !!scope && RESTRICTED.indexOf(scope.getAttribute('data-status')) !== -1;
+        }
+
         function toggleRow(trigger) {
+            if (isRestricted(trigger)) return;
+
             var willOpen = !trigger.classList.contains('brx-open');
 
             // Single-open mode: before opening this row, close any other.

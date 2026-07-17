@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.8.2
+ * Version: 2.9.0
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.8.2');
+define('IMMOADMIN_VERSION', '2.9.0');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -42,6 +42,7 @@ define('IMMOADMIN_MEDIA_DIR', IMMOADMIN_DATA_DIR . 'media/');
 // classes are present and surface an admin notice for the rest.
 foreach (array(
     'includes/class-post-type.php',
+    'includes/class-visibility.php',
     'includes/class-sync.php',
     'includes/class-admin.php',
     'includes/class-webhook.php',
@@ -77,6 +78,14 @@ class ImmoAdmin {
         // Initialize components
         add_action('init', array($this, 'init'));
         add_action('admin_menu', array($this, 'admin_menu'));
+
+        // Preis-/Dokument-Schutz für reservierte, verkaufte und vermietete
+        // Einheiten (REST + Detailseite + Archiv). class_exists() analog zum
+        // defensiven Loader oben.
+        if (class_exists('ImmoAdmin_Visibility')) {
+            ImmoAdmin_Visibility::init();
+        }
+
         add_action('rest_api_init', array($this, 'register_rest_routes'));
 
         // Allow our REST API namespace even when plugins block unauthenticated access

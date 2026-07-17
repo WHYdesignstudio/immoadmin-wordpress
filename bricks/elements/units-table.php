@@ -905,6 +905,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'element_id'        => $this->id,
             'element_instance'  => $this,
             'url_state_value_dd'=> $url_state ? $url_state_value_dd : '',
+            'is_builder'        => self::is_builder_context(),
         ];
 
         $query_obj = new \Bricks\Query($element);
@@ -997,12 +998,22 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $element_id        = $ctx['element_id'] ?? '';
         $element_instance  = $ctx['element_instance'] ?? null;
         $url_state_value_dd = $ctx['url_state_value_dd'] ?? '';
+        $is_builder        = !empty($ctx['is_builder']);
 
         $post_id = get_the_ID();
         $status  = (string) get_post_meta($post_id, 'status', true);
         // Treat "sold" (Kauf) and "rented" (Miete) identically for hide/dim:
         // both mean "not available anymore" from the visitor's perspective.
         $is_unavailable = ($status === 'sold' || $status === 'rented');
+
+        // Deliberately WIDER than $is_unavailable and a separate concept: a
+        // reserved unit is still on the table (and may not even be dimmed),
+        // but its price and its Exposé are nobody's business anymore, and its
+        // accordion must stay shut. Not tied to $status_handling — redaction
+        // is a data rule, not a display option the editor can switch off.
+        // See render_cell() / is_sensitive_field_key() for what gets dropped.
+        $is_restricted = !$is_builder
+            && in_array($status, ['reserved', 'sold', 'rented'], true);
 
         // Resolve URL-state value once per row (e.g. "{cf_door_number}" -> "15").
         $url_value = '';
@@ -1029,7 +1040,11 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $title_id   = 'immoadmin-row-' . $element_id . '-' . (int) $post_id;
         $content_id = 'immoadmin-panel-' . $element_id . '-' . (int) $post_id;
 
-        $is_accordion = ($mode === 'accordion');
+        // Restricted rows fall back to the plain-row branch: no panel, no
+        // rowgroup wrapper, and none of the toggle affordances below
+        // (tabindex / aria-expanded / .accordion-title-wrapper). Nothing to
+        // open, nothing to focus — enforced here rather than in CSS/JS.
+        $is_accordion = ($mode === 'accordion') && !$is_restricted;
 
         $output = '';
 
@@ -1059,7 +1074,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $output .= '<div class="' . esc_attr(implode(' ', $row_classes)) . '"' . $row_attr . '>';
 
         foreach ($columns as $idx => $col) {
-            $output .= self::render_cell($col, $idx);
+            $output .= self::render_cell($col, $idx, $is_restricted);
         }
 
         $output .= '</div>'; // .immoadmin-table-row
@@ -1101,16 +1116,25 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
     /**
      * Render a single cell.
+     *
+     * $is_restricted (reserved / sold / rented, see render_row()) redacts the
+     * sensitive columns: the DD is never resolved, so no price and no Exposé
+     * URL exists at the point where markup gets built — nothing to fish out of
+     * the DOM, and nothing left in data-sort-value / href / aria-label either.
      */
-    private static function render_cell($col, $idx) {
+    private static function render_cell($col, $idx, $is_restricted = false) {
         $type   = !empty($col['type']) ? $col['type'] : 'text';
         $value  = isset($col['value']) ? (string) $col['value'] : '';
         $align  = !empty($col['align']) ? $col['align'] : 'left';
         $mobile = !empty($col['mobile_visible']) ? '1' : '0';
 
+        $redact = $is_restricted && self::is_sensitive_column($col);
+
         // Resolve dynamic data once. The global $post is set by Bricks during
         // the loop, so passing 0 lets the resolver find the right post.
-        $resolved = bricks_render_dynamic_data($value);
+        // Redacted columns skip the resolver entirely — the value must never
+        // exist in this scope, not even to be thrown away later.
+        $resolved = $redact ? '' : bricks_render_dynamic_data($value);
 
         $sort_value = is_string($resolved) ? $resolved : '';
 
@@ -1126,15 +1150,21 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $is_empty = ($resolved_trim === '');
 
         // Per-column fallback for empty values (default "—"). Resolve DD too
-        // so users can put e.g. "{post_title}" or any string.
+        // so users can put e.g. "{post_title}" or any string. A fallback that
+        // points at a sensitive field would smuggle back exactly what we just
+        // redacted, so it stays unresolved in that case.
         $fallback_raw = isset($col['fallback']) ? (string) $col['fallback'] : '—';
-        $fallback     = bricks_render_dynamic_data($fallback_raw);
+        $fallback     = ($redact && self::dd_has_sensitive_field($fallback_raw))
+            ? ''
+            : bricks_render_dynamic_data($fallback_raw);
 
         $inner = '';
 
         // Icon columns are exempt from the empty-fallback: an icon column may
         // intentionally have no DD value (= just a static icon, no link).
-        if ($is_empty && $type !== 'icon') {
+        // Redacted ones are NOT exempt — a dangling Exposé icon that links
+        // nowhere is worse than the fallback dash.
+        if ($is_empty && ($type !== 'icon' || $redact)) {
             $inner = $fallback !== ''
                 ? '<span class="immoadmin-cell-empty">' . esc_html($fallback) . '</span>'
                 : '';
@@ -1215,6 +1245,88 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         }
 
         return '<div class="immoadmin-table-cell"' . $cell_attrs . '>' . $inner . '</div>';
+    }
+
+    /**
+     * True while rendering for the Bricks builder on behalf of a user who may
+     * actually edit. Builder renders skip redaction: the designer needs the
+     * real values and an accordion panel to style — same reasoning as the
+     * data-builder hook in render() that forces the first panel open. The
+     * capability check makes sure no anonymous frontend request can ever
+     * reach this branch, whatever endpoint it comes in on.
+     */
+    private static function is_builder_context() {
+        $in_builder = (function_exists('bricks_is_builder_iframe') && bricks_is_builder_iframe())
+            || (function_exists('bricks_is_builder_call') && bricks_is_builder_call());
+
+        return $in_builder && current_user_can('edit_posts');
+    }
+
+    /**
+     * Is this column one we must redact for reserved / sold / rented units?
+     *
+     * Decided from the column CONFIG, never from the resolved value — a column
+     * is sensitive by what it points at, so an empty price is treated exactly
+     * like a filled one. link/icon columns keep the URL in `value` and the
+     * label in `link_text` ({cf_document_1_title}), so both are checked.
+     */
+    private static function is_sensitive_column($col) {
+        return self::dd_has_sensitive_field($col['value'] ?? '')
+            || self::dd_has_sensitive_field($col['link_text'] ?? '');
+    }
+
+    /**
+     * True if ANY "{cf_…}" tag in $dd names a sensitive field. Scans every tag
+     * because one column may combine several (e.g. "{cf_purchase_price_formatted}
+     * / {cf_price_per_sqm_formatted}"). The pattern is looser than
+     * guess_meta_key_from_dd()'s — it must still catch tags that carry Bricks
+     * filter args, like "{cf_purchase_price:number}".
+     */
+    private static function dd_has_sensitive_field($dd) {
+        if (!is_string($dd) || $dd === '') {
+            return false;
+        }
+        if (!preg_match_all('/\{cf_([a-z0-9_]+)/i', $dd, $matches)) {
+            return false;
+        }
+        foreach ($matches[1] as $key) {
+            if (self::is_sensitive_field_key($key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The redaction list: every price, and every Exposé/document link.
+     *
+     * "_formatted" is stripped first so {cf_purchase_price_formatted} and
+     * {cf_purchase_price} hit the same rule (mirrors guess_meta_key_from_dd()).
+     * Price matching is segment-exact on "price"/"rent" rather than substring:
+     * that catches purchase_price(_investor|_private), price_per_sqm,
+     * parking_price, rent_cold, rent_warm, vat_rent and
+     * gross_rent_without_heating, while leaving rental_term_years (Befristung
+     * — a duration, not money) alone.
+     *
+     * Ancillary running costs (heating_costs, operating_costs, deposit,
+     * minimum_income, commission) are NOT redacted: they are not the asking
+     * price. Add the key here if that ever changes.
+     */
+    private static function is_sensitive_field_key($key) {
+        $key = preg_replace('/_formatted$/', '', (string) $key);
+        if ($key === '') {
+            return false;
+        }
+
+        // Exposé & friends: document_1_url, document_2_title, … plus the raw
+        // `documents` JSON blob, which carries the same URLs.
+        if ($key === 'documents' || preg_match('/^document_\d+_/', $key)) {
+            return true;
+        }
+
+        $segments = explode('_', $key);
+
+        return in_array('price', $segments, true) || in_array('rent', $segments, true);
     }
 
     /**
