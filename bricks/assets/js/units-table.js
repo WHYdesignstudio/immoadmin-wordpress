@@ -24,6 +24,44 @@
         initScrollHint(table);
 
         // ------------------------------------------------------------------
+        // Bricks' "load more" appends each AJAX batch INSIDE the last rendered
+        // loop item instead of into the grid, so rows from page 2 onwards end
+        // up nested one level deep (page 3 inside page 2, and so on). Nothing
+        // looks wrong — the rows use display:contents, so the grid lays them
+        // out exactly as before — but anything walking grid.children then only
+        // ever sees the first batch. Sorting silently applied to page 1 only.
+        //
+        // Hoisting every row back to be a direct child of the grid keeps the
+        // DOM matching what the markup claims, so the sorter needs no special
+        // case. Re-appending in document order preserves the current order.
+        // ------------------------------------------------------------------
+        var gridEl = table.querySelector('.immoadmin-table');
+        var rowSelector = mode === 'accordion'
+            ? '.accordion-item'
+            : '.immoadmin-table-row:not(.immoadmin-table-header)';
+
+        function normalizeRows() {
+            if (!gridEl) return;
+            var rows = gridEl.querySelectorAll(rowSelector);
+            var nested = false;
+            for (var i = 0; i < rows.length; i++) {
+                if (rows[i].parentElement !== gridEl) { nested = true; break; }
+            }
+            // Bail when nothing is nested — this runs from a MutationObserver,
+            // and re-appending on every mutation would both churn the DOM and
+            // retrigger the observer forever.
+            if (!nested) return;
+            for (var j = 0; j < rows.length; j++) {
+                gridEl.appendChild(rows[j]);
+            }
+        }
+
+        if (gridEl && typeof MutationObserver === 'function') {
+            normalizeRows();
+            new MutationObserver(normalizeRows).observe(gridEl, { childList: true, subtree: true });
+        }
+
+        // ------------------------------------------------------------------
         // Accordion toggle (delegated; survives DOM swaps via BricksFunction
         // re-init).
         // ------------------------------------------------------------------
@@ -123,6 +161,11 @@
         function sortByHeader(th) {
             var grid = table.querySelector('.immoadmin-table');
             if (!grid) return;
+
+            // Belt & braces: the observer normally has this done already, but
+            // a click landing in the same tick as a load-more insert would
+            // otherwise sort a partial row list.
+            normalizeRows();
 
             var colIndex = parseInt(th.dataset.colIndex || '0', 10);
             var current = th.dataset.sortDirection || '';
