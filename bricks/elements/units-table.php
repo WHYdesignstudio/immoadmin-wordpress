@@ -255,26 +255,56 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         $this->controls['default_sort_key'] = [
+            'tab'       => 'content',
+            'group'     => 'behavior',
+            'label'     => esc_html__('Sortierung', 'immoadmin'),
+            'type'      => 'select',
+            'options'   => self::sort_field_options(),
+            'default'   => 'sort_key',
+            'clearable' => false,
+            'desc'      => esc_html__('Bestimmt die Reihenfolge der Zeilen beim Laden der Seite.', 'immoadmin'),
+        ];
+
+        $this->controls['default_sort_key_custom'] = [
             'tab'         => 'content',
             'group'       => 'behavior',
-            'label'       => esc_html__('Standard-Sortierfeld', 'immoadmin'),
+            'label'       => esc_html__('Eigenes Feld (Meta-Key)', 'immoadmin'),
             'type'        => 'text',
-            'default'     => 'sort_key',
-            'placeholder' => 'sort_key',
+            'placeholder' => 'z. B. balcony_area',
+            'required'    => ['default_sort_key', '=', '__custom'],
+        ];
+
+        $this->controls['default_sort_key_custom_numeric'] = [
+            'tab'      => 'content',
+            'group'    => 'behavior',
+            'label'    => esc_html__('Eigenes Feld ist eine Zahl', 'immoadmin'),
+            'type'     => 'checkbox',
+            'default'  => true,
+            'required' => ['default_sort_key', '=', '__custom'],
         ];
 
         $this->controls['default_sort_order'] = [
             'tab'       => 'content',
             'group'     => 'behavior',
-            'label'     => esc_html__('Standard-Sortierrichtung', 'immoadmin'),
+            'label'     => esc_html__('Richtung', 'immoadmin'),
             'type'      => 'select',
             'options'   => [
-                'ASC'  => 'ASC',
-                'DESC' => 'DESC',
+                'ASC'  => esc_html__('Aufsteigend (A→Z, 1→9)', 'immoadmin'),
+                'DESC' => esc_html__('Absteigend (Z→A, 9→1)', 'immoadmin'),
             ],
             'default'   => 'ASC',
             'inline'    => true,
             'clearable' => false,
+        ];
+
+        $this->controls['default_sort_tiebreak'] = [
+            'tab'      => 'content',
+            'group'    => 'behavior',
+            'label'    => esc_html__('Danach nach Stiege & Tür sortieren', 'immoadmin'),
+            'type'     => 'checkbox',
+            'default'  => true,
+            'desc'     => esc_html__('Bei gleichem Wert (z. B. selbes Haus) entscheidet die Türnummer.', 'immoadmin'),
+            'required' => ['default_sort_key', '!=', 'sort_key'],
         ];
 
         $this->controls['inline_sort_enabled'] = [
@@ -908,6 +938,21 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'is_builder'        => self::is_builder_context(),
         ];
 
+        // Sort controls → query vars, picked up by apply_sort_query_vars() on
+        // Bricks' filter. Keyed by element id so several tables on one page
+        // (and the AJAX re-render of a filtered one) keep their own order.
+        $sort_vars = self::build_sort_query_vars($settings);
+        if (!empty($sort_vars)) {
+            if (!isset($GLOBALS['immoadmin_units_table_sort'])) {
+                $GLOBALS['immoadmin_units_table_sort'] = [];
+            }
+            $GLOBALS['immoadmin_units_table_sort'][$this->id] = $sort_vars;
+
+            if (!has_filter('bricks/posts/query_vars', [__CLASS__, 'apply_sort_query_vars'])) {
+                add_filter('bricks/posts/query_vars', [__CLASS__, 'apply_sort_query_vars'], 10, 3);
+            }
+        }
+
         $query_obj = new \Bricks\Query($element);
 
         // Mirror the Container loop pattern: mark element as looped, drop
@@ -1327,6 +1372,137 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $segments = explode('_', $key);
 
         return in_array('price', $segments, true) || in_array('rent', $segments, true);
+    }
+
+    /**
+     * Sortable fields offered in the builder, keyed by meta_key.
+     *
+     * Labels are what the site builder sees — never a raw meta key, because
+     * "sort_key" tells nobody that it means staircase + door number. The two
+     * "__"-prefixed entries are not meta at all: they map to WP_Query's own
+     * orderby values in build_sort_query_vars().
+     */
+    private static function sort_field_options() {
+        return [
+            'sort_key'       => esc_html__('Stiege & Tür (Standard)', 'immoadmin'),
+            'door_number'    => esc_html__('Türnummer', 'immoadmin'),
+            'staircase'      => esc_html__('Stiege', 'immoadmin'),
+            'building_name'  => esc_html__('Haus / Gebäude', 'immoadmin'),
+            'floor'          => esc_html__('Geschoss', 'immoadmin'),
+            'living_area'    => esc_html__('Wohnfläche', 'immoadmin'),
+            'room_count'     => esc_html__('Zimmer', 'immoadmin'),
+            'purchase_price' => esc_html__('Kaufpreis', 'immoadmin'),
+            'rent_cold'      => esc_html__('Miete (kalt)', 'immoadmin'),
+            'price_per_sqm'  => esc_html__('Preis pro m²', 'immoadmin'),
+            'status'         => esc_html__('Status', 'immoadmin'),
+            'object_type'    => esc_html__('Objekttyp', 'immoadmin'),
+            '__title'        => esc_html__('Titel', 'immoadmin'),
+            '__date'         => esc_html__('Zuletzt hinzugefügt', 'immoadmin'),
+            '__custom'       => esc_html__('Eigenes Feld …', 'immoadmin'),
+        ];
+    }
+
+    /**
+     * Meta keys whose values are stored as plain numbers by the sync, so they
+     * need NUMERIC casting. Everything else sorts as text.
+     */
+    private static function numeric_sort_fields() {
+        return [
+            'sort_key', 'door_number', 'staircase', 'floor', 'living_area',
+            'room_count', 'purchase_price', 'rent_cold', 'price_per_sqm',
+        ];
+    }
+
+    /**
+     * Translate the builder's sort controls into WP_Query vars.
+     *
+     * Returns [] when the settings ask for nothing beyond what the element's
+     * query control already does, so the filter can bail without touching a
+     * query the user configured by hand.
+     */
+    private static function build_sort_query_vars($settings) {
+        $field = !empty($settings['default_sort_key']) ? (string) $settings['default_sort_key'] : 'sort_key';
+        $order = (isset($settings['default_sort_order']) && $settings['default_sort_order'] === 'DESC')
+            ? 'DESC'
+            : 'ASC';
+
+        if ($field === '__title') {
+            return ['orderby' => 'title', 'order' => $order];
+        }
+        if ($field === '__date') {
+            return ['orderby' => 'date', 'order' => $order];
+        }
+
+        $numeric = in_array($field, self::numeric_sort_fields(), true);
+
+        if ($field === '__custom') {
+            $field = !empty($settings['default_sort_key_custom'])
+                ? sanitize_key($settings['default_sort_key_custom'])
+                : '';
+            if ($field === '') {
+                return [];
+            }
+            $numeric = !empty($settings['default_sort_key_custom_numeric']);
+        }
+
+        // Secondary sort only makes sense when the primary is something else —
+        // and only helps when the primary produces ties (same house, same
+        // floor, same status …), which is exactly the common case here.
+        $tiebreak = $field !== 'sort_key' && !empty($settings['default_sort_tiebreak']);
+
+        // NOT EXISTS is OR-ed in so units missing the meta still show up. The
+        // sync writes every key for every unit, but a hand-typed custom key or
+        // a unit created before a field existed would otherwise vanish from
+        // the table entirely — silently dropping rows is worse than a stray
+        // one sorting to the top.
+        $meta_query = [
+            'relation'          => 'OR',
+            'immoadmin_sort'    => [
+                'key'     => $field,
+                'compare' => 'EXISTS',
+                'type'    => $numeric ? 'NUMERIC' : 'CHAR',
+            ],
+            'immoadmin_sort_na' => [
+                'key'     => $field,
+                'compare' => 'NOT EXISTS',
+            ],
+        ];
+
+        $orderby = ['immoadmin_sort' => $order];
+
+        if ($tiebreak) {
+            $meta_query['immoadmin_sort2'] = [
+                'key'     => 'sort_key',
+                'compare' => 'EXISTS',
+                'type'    => 'NUMERIC',
+            ];
+            $orderby['immoadmin_sort2'] = 'ASC';
+        }
+
+        return [
+            'meta_query' => $meta_query,
+            'orderby'    => $orderby,
+            'order'      => $order,
+            // The element's default query sets meta_key => sort_key. Left in
+            // place it adds a second postmeta JOIN that WP then also orders by,
+            // overriding the named clauses above.
+            'meta_key'   => '',
+        ];
+    }
+
+    /**
+     * Apply the sort controls to this element's query.
+     *
+     * Runs on Bricks' own filter rather than mutating the element settings,
+     * because Bricks\Query rebuilds query vars from its query control and
+     * would drop an unknown meta_query key on the way through.
+     */
+    public static function apply_sort_query_vars($query_vars, $settings, $element_id) {
+        if (empty($GLOBALS['immoadmin_units_table_sort'][$element_id])) {
+            return $query_vars;
+        }
+
+        return array_merge($query_vars, $GLOBALS['immoadmin_units_table_sort'][$element_id]);
     }
 
     /**
