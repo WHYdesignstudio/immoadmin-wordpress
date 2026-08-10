@@ -949,24 +949,6 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'is_builder'        => self::is_builder_context(),
         ];
 
-        // Sort controls → query vars, picked up by apply_sort_query_vars() on
-        // Bricks' filter. Keyed by element id so several tables on one page
-        // (and the AJAX re-render of a filtered one) keep their own order.
-        $sort_vars = self::build_sort_query_vars($settings);
-        if (!empty($sort_vars)) {
-            if (!isset($GLOBALS['immoadmin_units_table_sort'])) {
-                $GLOBALS['immoadmin_units_table_sort'] = [];
-            }
-            $GLOBALS['immoadmin_units_table_sort'][$this->id] = $sort_vars;
-
-            if (!has_filter('bricks/posts/query_vars', [__CLASS__, 'apply_sort_query_vars'])) {
-                add_filter('bricks/posts/query_vars', [__CLASS__, 'apply_sort_query_vars'], 10, 3);
-            }
-            if (!has_filter('posts_orderby', [__CLASS__, 'apply_natural_orderby'])) {
-                add_filter('posts_orderby', [__CLASS__, 'apply_natural_orderby'], 10, 2);
-            }
-        }
-
         $query_obj = new \Bricks\Query($element);
 
         // Mirror the Container loop pattern: mark element as looped, drop
@@ -1556,13 +1538,23 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
      * Runs on Bricks' own filter rather than mutating the element settings,
      * because Bricks\Query rebuilds query vars from its query control and
      * would drop an unknown meta_query key on the way through.
+     *
+     * Everything comes from the $settings Bricks hands in, so this works no
+     * matter when the query runs. It cannot depend on render() having executed
+     * first: a Filter element sitting above the table builds the target query
+     * to populate its own options, which happens before the table renders.
+     *
+     * The filter fires for every Bricks post query on the page, so bail unless
+     * the settings carry our own control — no other element has it.
      */
     public static function apply_sort_query_vars($query_vars, $settings, $element_id) {
-        if (empty($GLOBALS['immoadmin_units_table_sort'][$element_id])) {
+        if (!is_array($settings) || empty($settings['default_sort_key'])) {
             return $query_vars;
         }
 
-        return array_merge($query_vars, $GLOBALS['immoadmin_units_table_sort'][$element_id]);
+        $sort_vars = self::build_sort_query_vars($settings);
+
+        return empty($sort_vars) ? $query_vars : array_merge($query_vars, $sort_vars);
     }
 
     /**
@@ -1583,3 +1575,11 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         return '';
     }
 }
+
+// Registered at file scope, not inside render(). Bricks requires every
+// registered element file on `init`, so both filters are in place long before
+// anything renders — which matters because a Filter element above the table
+// builds the table's query to populate its own options, and a filter added
+// during render() would miss that first, page-defining run.
+add_filter('bricks/posts/query_vars', ['ImmoAdmin_Units_Table', 'apply_sort_query_vars'], 10, 3);
+add_filter('posts_orderby', ['ImmoAdmin_Units_Table', 'apply_natural_orderby'], 10, 2);
