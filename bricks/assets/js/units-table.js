@@ -36,13 +36,35 @@
         // case. Re-appending in document order preserves the current order.
         // ------------------------------------------------------------------
         var gridEl = table.querySelector('.immoadmin-table');
-        var rowSelector = mode === 'accordion'
-            ? '.accordion-item'
-            : '.immoadmin-table-row:not(.immoadmin-table-header)';
+
+        // One unit is one of two shapes, and both have to be recognised:
+        //   .accordion-item                    — the normal, expandable row
+        //   .immoadmin-table-row (bare)        — reserved / sold / rented, which
+        //                                        render without an accordion
+        // The row nested inside an .accordion-item is that item's own title
+        // row, not a unit of its own — it carries .accordion-title-wrapper,
+        // which is what tells the two apart. Matching only .accordion-item (as
+        // this did before) left restricted rows stuck inside whichever row
+        // Bricks had dropped them into, which is exactly where they then
+        // appeared on screen: "Mackgasse 11 Top 2" sitting inside "Mackgasse 9
+        // Top 37".
+        function collectRows() {
+            var out = [];
+            if (!gridEl) return out;
+            var nodes = gridEl.querySelectorAll('.accordion-item, .immoadmin-table-row');
+            for (var i = 0; i < nodes.length; i++) {
+                var n = nodes[i];
+                if (n.classList.contains('accordion-item')) { out.push(n); continue; }
+                if (n.classList.contains('immoadmin-table-header')) continue;
+                if (n.classList.contains('accordion-title-wrapper')) continue;
+                out.push(n);
+            }
+            return out;
+        }
 
         function normalizeRows() {
             if (!gridEl) return;
-            var rows = gridEl.querySelectorAll(rowSelector);
+            var rows = collectRows();
             var nested = false;
             for (var i = 0; i < rows.length; i++) {
                 if (rows[i].parentElement !== gridEl) { nested = true; break; }
@@ -177,11 +199,10 @@
             });
             th.setAttribute('data-sort-direction', dir);
 
-            // Pick units to sort: in accordion mode rows live inside .accordion-item.
-            var units = Array.prototype.slice.call(grid.children).filter(function (n) {
-                return n.classList.contains('accordion-item') ||
-                    (n.classList.contains('immoadmin-table-row') && !n.classList.contains('immoadmin-table-header'));
-            });
+            // Same row set the normalizer works on, so reserved / sold / rented
+            // rows take part in the sort instead of staying put while the rest
+            // reorders around them.
+            var units = collectRows();
             if (!units.length) return;
 
             units.sort(function (a, b) {
