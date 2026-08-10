@@ -271,7 +271,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'label'       => esc_html__('Eigenes Feld (Meta-Key)', 'immoadmin'),
             'type'        => 'text',
             'placeholder' => 'z. B. balcony_area',
-            'info'        => esc_html__('Muss exakt einem Feldnamen entsprechen — passt keine Wohnung, bleibt die Tabelle leer.', 'immoadmin'),
+            'info'        => esc_html__('Wohnungen ohne diesen Wert stehen am Ende der Liste.', 'immoadmin'),
             'required'    => ['default_sort_key', '=', '__custom'],
         ];
 
@@ -1414,7 +1414,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
      * a human counts: "Mackgasse 9" before "Mackgasse 11", not after it.
      *
      * Plain alphabetical comparison puts "11" first because "1" < "9". The fix
-     * is ORDER BY LENGTH(value), value — see apply_natural_orderby(). It is
+     * is ORDER BY LENGTH(value), value — see apply_sort_clauses(). It is
      * opt-in per field rather than blanket-applied to every text column,
      * because for names of equal shape (status, object type) sorting by length
      * first would scramble an otherwise correct alphabetical order.
@@ -1467,69 +1467,102 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             : 'sort_key';
         $tiebreak = $field !== 'sort_key' && $tiebreak_setting === 'sort_key';
 
-        // AND, not OR: the sync writes every key for every unit (null becomes
-        // an empty string), so EXISTS always holds and an OR/NOT EXISTS pair
-        // would only add a second LEFT JOIN for MySQL to pick order rows from.
-        // A hand-typed custom key that matches nothing empties the table — the
-        // control's description says so.
-        $meta_query = [
-            'relation'       => 'AND',
-            'immoadmin_sort' => [
-                'key'     => $field,
-                'compare' => 'EXISTS',
-                'type'    => $numeric ? 'NUMERIC' : 'CHAR',
-            ],
-        ];
-
-        $orderby = ['immoadmin_sort' => $order];
+        // Deliberately NOT meta_query. Every meta_query form that WP can order
+        // by also filters: 'EXISTS' drops units that never got the meta row,
+        // and a plain meta_key adds an INNER JOIN that does the same. Reserved
+        // units on liesi.wien have no sort_key, so ordering by house silently
+        // removed them from the table — a sort option must never decide which
+        // units a visitor gets to see.
+        //
+        // apply_sort_clauses() turns this spec into LEFT JOINs, where a missing
+        // value costs a unit its position but never its row.
+        $spec = [[
+            'key'     => $field,
+            'numeric' => $numeric,
+            'natural' => !$numeric && in_array($field, self::natural_sort_fields(), true),
+            'dir'     => $order,
+        ]];
 
         if ($tiebreak) {
-            $meta_query['immoadmin_sort2'] = [
+            $spec[] = [
                 'key'     => 'sort_key',
-                'compare' => 'EXISTS',
-                'type'    => 'NUMERIC',
+                'numeric' => true,
+                'natural' => false,
+                'dir'     => 'ASC',
             ];
-            $orderby['immoadmin_sort2'] = 'ASC';
         }
 
         return [
-            'meta_query' => $meta_query,
-            'orderby'    => $orderby,
-            'order'      => $order,
-            // The element's default query sets meta_key => sort_key. Left in
-            // place it adds a second postmeta JOIN that WP then also orders by,
-            // overriding the named clauses above.
-            'meta_key'   => '',
-            // Read back off the WP_Query in apply_natural_orderby(). Custom
-            // query vars survive WP_Query untouched, which makes this a safer
-            // marker than trying to recognise our own SQL.
-            'immoadmin_natural_sort' => !$numeric && in_array($field, self::natural_sort_fields(), true),
+            'immoadmin_sort_spec' => $spec,
+            // WP must not build an ORDER BY of its own — apply_sort_clauses()
+            // replaces it wholesale, and 'none' keeps the element's default
+            // meta_value_num ordering (plus its filtering INNER JOIN) out of
+            // the SQL entirely.
+            'orderby'             => 'none',
+            'meta_key'            => '',
         ];
     }
 
     /**
-     * Make the primary sort count like a human: "Haus 9" before "Haus 11".
+     * Build the JOIN + ORDER BY for the sort spec.
      *
-     * MySQL compares strings character by character, so "11" sorts before "9".
-     * Ordering by LENGTH() first groups equal-width numbers together, which
-     * gives natural order for names that differ only in a trailing number —
-     * the shape building names actually have.
+     * LEFT JOIN per sort level, so a unit missing the meta still appears — it
+     * just sorts to the end (the IS NULL term is always ASC, which keeps blanks
+     * last in both directions rather than flipping them to the top on DESC).
      *
-     * The ORDER BY at this point is WP's own, e.g.
-     *   CAST(mt1.meta_value AS CHAR) ASC, CAST(mt2.meta_value AS SIGNED) ASC
-     * so only the first term is rewritten and any tiebreak stays intact.
+     * Natural ordering ("Haus 9" before "Haus 11") comes from ordering by
+     * LENGTH() first: MySQL compares strings character by character, so plain
+     * alphabetical puts "11" ahead of "9". Only fields flagged in
+     * natural_sort_fields() get it — for values of uniform shape it would
+     * scramble an otherwise correct alphabetical order.
      */
-    public static function apply_natural_orderby($orderby, $query) {
-        if (!$query->get('immoadmin_natural_sort') || !is_string($orderby) || $orderby === '') {
-            return $orderby;
+    public static function apply_sort_clauses($clauses, $query) {
+        $spec = $query->get('immoadmin_sort_spec');
+        if (empty($spec) || !is_array($spec)) {
+            return $clauses;
         }
 
-        return preg_replace(
-            '/^\s*(.+?)\s+(ASC|DESC)/i',
-            'LENGTH($1) $2, $1 $2',
-            $orderby,
-            1
-        );
+        global $wpdb;
+        $order_terms = [];
+
+        foreach (array_values($spec) as $i => $level) {
+            if (empty($level['key'])) {
+                continue;
+            }
+
+            $alias = 'immo_sort_' . (int) $i;
+            $dir   = (isset($level['dir']) && strtoupper($level['dir']) === 'DESC') ? 'DESC' : 'ASC';
+
+            $clauses['join'] .= $wpdb->prepare(
+                " LEFT JOIN {$wpdb->postmeta} AS {$alias}"
+                . " ON {$alias}.post_id = {$wpdb->posts}.ID AND {$alias}.meta_key = %s",
+                $level['key']
+            );
+
+            // Treat "" like a missing row: the sync stores null as an empty
+            // string, which would otherwise cast to 0 and sort ahead of every
+            // real value.
+            $value = "NULLIF({$alias}.meta_value, '')";
+
+            $order_terms[] = "({$value} IS NULL) ASC";
+
+            if (!empty($level['natural'])) {
+                $order_terms[] = "LENGTH({$value}) {$dir}";
+            }
+
+            $order_terms[] = !empty($level['numeric'])
+                ? "CAST({$value} AS DECIMAL(20,6)) {$dir}"
+                : "{$value} {$dir}";
+        }
+
+        if (!empty($order_terms)) {
+            // Stable last resort: without it MySQL is free to shuffle units
+            // that tie on every sort level between one page load and the next.
+            $order_terms[]      = "{$wpdb->posts}.ID ASC";
+            $clauses['orderby'] = implode(', ', $order_terms);
+        }
+
+        return $clauses;
     }
 
     /**
@@ -1582,4 +1615,4 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 // builds the table's query to populate its own options, and a filter added
 // during render() would miss that first, page-defining run.
 add_filter('bricks/posts/query_vars', ['ImmoAdmin_Units_Table', 'apply_sort_query_vars'], 10, 3);
-add_filter('posts_orderby', ['ImmoAdmin_Units_Table', 'apply_natural_orderby'], 10, 2);
+add_filter('posts_clauses', ['ImmoAdmin_Units_Table', 'apply_sort_clauses'], 10, 2);
