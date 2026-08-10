@@ -271,6 +271,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'label'       => esc_html__('Eigenes Feld (Meta-Key)', 'immoadmin'),
             'type'        => 'text',
             'placeholder' => 'z. B. balcony_area',
+            'info'        => esc_html__('Muss exakt einem Feldnamen entsprechen — passt keine Wohnung, bleibt die Tabelle leer.', 'immoadmin'),
             'required'    => ['default_sort_key', '=', '__custom'],
         ];
 
@@ -297,14 +298,24 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'clearable' => false,
         ];
 
+        // Deliberately a select, not a checkbox: Bricks omits an untouched
+        // checkbox from the saved settings entirely, so "never toggled" and
+        // "explicitly unchecked" are indistinguishable. A non-clearable select
+        // always round-trips the user's actual choice.
         $this->controls['default_sort_tiebreak'] = [
-            'tab'      => 'content',
-            'group'    => 'behavior',
-            'label'    => esc_html__('Danach nach Stiege & Tür sortieren', 'immoadmin'),
-            'type'     => 'checkbox',
-            'default'  => true,
-            'desc'     => esc_html__('Bei gleichem Wert (z. B. selbes Haus) entscheidet die Türnummer.', 'immoadmin'),
-            'required' => ['default_sort_key', '!=', 'sort_key'],
+            'tab'       => 'content',
+            'group'     => 'behavior',
+            'label'     => esc_html__('Zweite Sortierung', 'immoadmin'),
+            'type'      => 'select',
+            'options'   => [
+                'sort_key' => esc_html__('Stiege & Tür', 'immoadmin'),
+                ''         => esc_html__('Keine', 'immoadmin'),
+            ],
+            'default'   => 'sort_key',
+            'clearable' => false,
+            'inline'    => true,
+            'desc'      => esc_html__('Bei gleichem Wert (z. B. selbes Haus) entscheidet die Türnummer.', 'immoadmin'),
+            'required'  => ['default_sort_key', '!=', 'sort_key'],
         ];
 
         $this->controls['inline_sort_enabled'] = [
@@ -951,6 +962,9 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             if (!has_filter('bricks/posts/query_vars', [__CLASS__, 'apply_sort_query_vars'])) {
                 add_filter('bricks/posts/query_vars', [__CLASS__, 'apply_sort_query_vars'], 10, 3);
             }
+            if (!has_filter('posts_orderby', [__CLASS__, 'apply_natural_orderby'])) {
+                add_filter('posts_orderby', [__CLASS__, 'apply_natural_orderby'], 10, 2);
+            }
         }
 
         $query_obj = new \Bricks\Query($element);
@@ -1414,6 +1428,20 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
     }
 
     /**
+     * Text fields that carry a number inside the string and must sort the way
+     * a human counts: "Mackgasse 9" before "Mackgasse 11", not after it.
+     *
+     * Plain alphabetical comparison puts "11" first because "1" < "9". The fix
+     * is ORDER BY LENGTH(value), value — see apply_natural_orderby(). It is
+     * opt-in per field rather than blanket-applied to every text column,
+     * because for names of equal shape (status, object type) sorting by length
+     * first would scramble an otherwise correct alphabetical order.
+     */
+    private static function natural_sort_fields() {
+        return ['building_name'];
+    }
+
+    /**
      * Translate the builder's sort controls into WP_Query vars.
      *
      * Returns [] when the settings ask for nothing beyond what the element's
@@ -1448,23 +1476,26 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // Secondary sort only makes sense when the primary is something else —
         // and only helps when the primary produces ties (same house, same
         // floor, same status …), which is exactly the common case here.
-        $tiebreak = $field !== 'sort_key' && !empty($settings['default_sort_tiebreak']);
+        //
+        // An absent setting means "never touched", which must resolve to the
+        // control's own default rather than to "off" — Bricks only stores what
+        // the user actually changed.
+        $tiebreak_setting = isset($settings['default_sort_tiebreak'])
+            ? (string) $settings['default_sort_tiebreak']
+            : 'sort_key';
+        $tiebreak = $field !== 'sort_key' && $tiebreak_setting === 'sort_key';
 
-        // NOT EXISTS is OR-ed in so units missing the meta still show up. The
-        // sync writes every key for every unit, but a hand-typed custom key or
-        // a unit created before a field existed would otherwise vanish from
-        // the table entirely — silently dropping rows is worse than a stray
-        // one sorting to the top.
+        // AND, not OR: the sync writes every key for every unit (null becomes
+        // an empty string), so EXISTS always holds and an OR/NOT EXISTS pair
+        // would only add a second LEFT JOIN for MySQL to pick order rows from.
+        // A hand-typed custom key that matches nothing empties the table — the
+        // control's description says so.
         $meta_query = [
-            'relation'          => 'OR',
-            'immoadmin_sort'    => [
+            'relation'       => 'AND',
+            'immoadmin_sort' => [
                 'key'     => $field,
                 'compare' => 'EXISTS',
                 'type'    => $numeric ? 'NUMERIC' : 'CHAR',
-            ],
-            'immoadmin_sort_na' => [
-                'key'     => $field,
-                'compare' => 'NOT EXISTS',
             ],
         ];
 
@@ -1487,7 +1518,36 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             // place it adds a second postmeta JOIN that WP then also orders by,
             // overriding the named clauses above.
             'meta_key'   => '',
+            // Read back off the WP_Query in apply_natural_orderby(). Custom
+            // query vars survive WP_Query untouched, which makes this a safer
+            // marker than trying to recognise our own SQL.
+            'immoadmin_natural_sort' => !$numeric && in_array($field, self::natural_sort_fields(), true),
         ];
+    }
+
+    /**
+     * Make the primary sort count like a human: "Haus 9" before "Haus 11".
+     *
+     * MySQL compares strings character by character, so "11" sorts before "9".
+     * Ordering by LENGTH() first groups equal-width numbers together, which
+     * gives natural order for names that differ only in a trailing number —
+     * the shape building names actually have.
+     *
+     * The ORDER BY at this point is WP's own, e.g.
+     *   CAST(mt1.meta_value AS CHAR) ASC, CAST(mt2.meta_value AS SIGNED) ASC
+     * so only the first term is rewritten and any tiebreak stays intact.
+     */
+    public static function apply_natural_orderby($orderby, $query) {
+        if (!$query->get('immoadmin_natural_sort') || !is_string($orderby) || $orderby === '') {
+            return $orderby;
+        }
+
+        return preg_replace(
+            '/^\s*(.+?)\s+(ASC|DESC)/i',
+            'LENGTH($1) $2, $1 $2',
+            $orderby,
+            1
+        );
     }
 
     /**
