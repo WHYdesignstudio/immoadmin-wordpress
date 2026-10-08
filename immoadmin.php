@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.11.1
+ * Version: 2.12.0
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.11.1');
+define('IMMOADMIN_VERSION', '2.12.0');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -41,6 +41,7 @@ define('IMMOADMIN_MEDIA_DIR', IMMOADMIN_DATA_DIR . 'media/');
 // partial update and a file is missing. The plugin will load whatever
 // classes are present and surface an admin notice for the rest.
 foreach (array(
+    'includes/class-unit-fields.php',
     'includes/class-post-type.php',
     'includes/class-visibility.php',
     'includes/class-sync.php',

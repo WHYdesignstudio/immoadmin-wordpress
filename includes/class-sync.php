@@ -207,8 +207,14 @@ class ImmoAdmin_Sync {
         $immoadmin_id = $unit['id'];
         $existing_post_id = isset($existing_posts[$immoadmin_id]) ? $existing_posts[$immoadmin_id] : null;
 
-        // Content hash for change detection
-        $content_hash = md5('v3:' . json_encode($unit));
+        // Content hash for change detection. The whole unit (incl. every
+        // metaField such as floor_to / pool_area) feeds the hash, so any new
+        // backend field propagates automatically. The prefix is bumped when
+        // the plugin starts deriving/writing something new from unchanged
+        // input (v4: pool_area_formatted), so units synced by an older plugin
+        // get rewritten once. Media is not re-downloaded — download_media()
+        // skips files that already exist locally.
+        $content_hash = md5('v4:' . json_encode($unit));
 
         // Skip if nothing changed
         if ($existing_post_id) {
@@ -254,8 +260,18 @@ class ImmoAdmin_Sync {
         $media_failed = false;
         $trusted_host = self::parse_trusted_host($base_url);
 
-        if (!empty($unit['metaFields'])) {
-            foreach ($unit['metaFields'] as $key => $value) {
+        $meta_fields = (!empty($unit['metaFields']) && is_array($unit['metaFields']))
+            ? $unit['metaFields']
+            : array();
+
+        // Derived companions (e.g. pool_area_formatted) — guarded so a
+        // partially delivered update can never break the sync.
+        if (!empty($meta_fields) && class_exists('ImmoAdmin_Unit_Fields')) {
+            $meta_fields = ImmoAdmin_Unit_Fields::augment_meta_fields($meta_fields);
+        }
+
+        if (!empty($meta_fields)) {
+            foreach ($meta_fields as $key => $value) {
                 // Media fields (image_N, floor_plan_N, document_N_url): download locally
                 if ($value && is_string($value) && self::is_media_url_field($key)) {
                     $local_url = self::download_media($value, $trusted_host);

@@ -721,6 +721,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'Terrasse'         => '{cf_terrace_area_formatted}',
             'Loggia'           => '{cf_loggia_area_formatted}',
             'Garten'           => '{cf_garden_area_formatted}',
+            'Pool'             => '{cf_pool_area_formatted}',
             'Dachterrasse'     => '{cf_roof_terrace_area_formatted}',
             'Freifläche gesamt'=> '{cf_outdoor_area_total_formatted}',
             'Ausrichtung'      => '{cf_orientation}',
@@ -1178,6 +1179,23 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $resolved = $redact ? '' : bricks_render_dynamic_data($value);
 
         $sort_value = is_string($resolved) ? $resolved : '';
+
+        // Floor columns ({cf_floor_label}, "GG", "EG+OG", "1. OG", "DG") sort
+        // by the numeric `floor` meta instead of the label text — otherwise
+        // the JS falls back to string comparison and puts "1. OG" before
+        // "EG". GG (negative) lands below UG/EG, a maisonette with its lower
+        // floor. No numeric floor → the label stays the sort value.
+        if (!$redact && class_exists('ImmoAdmin_Unit_Fields')) {
+            $sort_key = !empty($col['sort_meta_key'])
+                ? (string) $col['sort_meta_key']
+                : self::guess_meta_key_from_dd($value);
+            if (ImmoAdmin_Unit_Fields::is_floor_sort_key($sort_key)) {
+                $sort_value = ImmoAdmin_Unit_Fields::floor_sort_value(
+                    get_post_meta((int) get_the_ID(), 'floor', true),
+                    $sort_value
+                );
+            }
+        }
 
         $cell_attrs  = ' role="cell"';
         $cell_attrs .= ' data-align="' . esc_attr($align) . '"';
