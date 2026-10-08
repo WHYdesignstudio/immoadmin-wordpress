@@ -114,6 +114,27 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $this->controls = array_merge($this->controls, $loop_controls);
 
+        // Building filter. No 'default' on purpose: an absent setting means
+        // "all buildings", so every widget placed before v2.13.0 keeps its
+        // exact query. Applied in apply_building_query_vars().
+        //
+        // Stores building NAMES, not building_id: names are what the designer
+        // recognises in the dropdown. Trade-off: if a building is renamed in
+        // ImmoAdmin, the old name stays selected and matches nothing — pick
+        // the new name here after the next sync.
+        $this->controls['immoadmin_buildings'] = [
+            'tab'         => 'content',
+            'group'       => 'query',
+            'label'       => esc_html__('Gebäude', 'immoadmin'),
+            'type'        => 'select',
+            'options'     => self::building_name_options(),
+            'multiple'    => true,
+            'searchable'  => true,
+            'clearable'   => true,
+            'placeholder' => esc_html__('Alle Gebäude', 'immoadmin'),
+            'desc'        => esc_html__('Nur Wohnungen dieser Gebäude anzeigen. Leer = alle. Die Liste füllt sich nach dem ersten Sync. Wird ein Gebäude umbenannt, hier neu auswählen.', 'immoadmin'),
+        ];
+
         // ---------- Columns ----------
         $this->controls['columnsInfo'] = [
             'tab'     => 'content',
@@ -129,17 +150,9 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'type'          => 'repeater',
             'titleProperty' => 'header',
             'placeholder'   => esc_html__('Spalte', 'immoadmin'),
-            'default'       => [
-                [
-                    'header'         => esc_html__('Top', 'immoadmin'),
-                    'value'          => '{cf_door_number}',
-                    'type'           => 'text',
-                    'sortable'       => true,
-                    'sort_meta_key'  => 'door_number',
-                    'mobile_visible' => true,
-                    'align'          => 'left',
-                ],
-            ],
+            // Preset for NEWLY dropped widgets only — see default_columns()
+            // for why this cannot reach widgets that already exist.
+            'default'       => self::default_columns(),
             'fields' => [
                 'header' => [
                     'label' => esc_html__('Spaltenüberschrift', 'immoadmin'),
@@ -202,6 +215,33 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                     'type'     => 'text',
                     'info'     => esc_html__('Leer lassen, um Meta-Key automatisch aus dem Wert abzuleiten.', 'immoadmin'),
                     'required' => ['sortable', '!=', ''],
+                ],
+                // The three flags below are opt-in (no field default): an
+                // existing column that never stored them renders exactly as
+                // before. The preset columns switch them on.
+                'sort_raw_meta' => [
+                    'label'    => esc_html__('Nach Zahlenwert sortieren', 'immoadmin'),
+                    'type'     => 'checkbox',
+                    'info'     => esc_html__('Klick-Sortierung nach dem Rohwert des Sortier-Meta-Keys statt nach dem angezeigten Text — sonst landet z. B. „1.200.000“ vor „439.800“.', 'immoadmin'),
+                    'inline'   => true,
+                    'small'    => true,
+                    'required' => ['sortable', '!=', ''],
+                ],
+                'status_color_from_meta' => [
+                    'label'    => esc_html__('Farbe aus Status-Feld', 'immoadmin'),
+                    'type'     => 'checkbox',
+                    'info'     => esc_html__('Färbt Badge/Punkt nach dem Status der Wohnung (verfügbar/reserviert/…), auch wenn der Wert z. B. {cf_status_label} anzeigt.', 'immoadmin'),
+                    'inline'   => true,
+                    'small'    => true,
+                    'required' => ['type', '=', ['status_badge', 'status_dot']],
+                ],
+                'accordion_toggle' => [
+                    'label'    => esc_html__('Akkordion-Pfeil (dreht beim Öffnen)', 'immoadmin'),
+                    'type'     => 'checkbox',
+                    'info'     => esc_html__('Icon dreht sich um 180°, wenn die Zeile offen ist, und erscheint nur in Zeilen, die sich öffnen lassen.', 'immoadmin'),
+                    'inline'   => true,
+                    'small'    => true,
+                    'required' => ['type', '=', 'icon'],
                 ],
                 'fallback' => [
                     'label'          => esc_html__('Fallback bei leerem Wert', 'immoadmin'),
@@ -749,30 +789,454 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
     }
 
     /**
-     * Default nestable item — one block with the accordion-content-wrapper hook.
-     * Used when the editor adds a new item via the _children repeater.
+     * Default nestable item — the accordion detail layout (see default_detail()).
      */
     public function get_nestable_item() {
+        return self::default_detail();
+    }
+
+    /**
+     * Children spawned once when the user drops the element on the canvas.
+     *
+     * Bricks inserts nestableChildren ONLY in its add-element routine
+     * (builder main.min.js: `getElementConfig(name).nestableChildren` is read
+     * right after a fresh element is created, unless `nestableChildrenSkip`).
+     * Already placed widgets store their children as real elements in the
+     * page data and are never re-seeded, so changing this preset cannot
+     * touch an existing page.
+     */
+    public function get_nestable_children() {
+        return [self::default_detail()];
+    }
+
+    // -----------------------------------------------------------------
+    // PRESETS (new widgets only)
+    // -----------------------------------------------------------------
+
+    /**
+     * Column preset for a freshly dropped widget.
+     *
+     * Why this can't leak into existing widgets (verified against Bricks
+     * 2.3.9 source):
+     *  - Control defaults are copied into an element's settings when it is
+     *    ADDED (builder: `for (a in controls) if (controls[a].hasOwnProperty
+     *    ("default")) settings[a] = controls[a].default` on drag, and the
+     *    same only for EMPTY settings on click-add). From then on the page
+     *    stores the actual `columns` array.
+     *  - On the frontend Bricks\Element::__construct() takes settings as
+     *    stored — there is no merge with control defaults — and render()
+     *    reads $settings['columns'] only.
+     * The one place the preset shows up for an old widget is the repeater's
+     * "+ add column" button, which clones default[0] (the TOP column) as a
+     * new item — a user action, never a silent change.
+     *
+     * Values use the backend's *_formatted meta ("79,9 m²", "439.800"),
+     * sorting uses the numeric base key. Empty cells fall back to "—" via
+     * the existing per-column fallback.
+     */
+    public static function default_columns() {
+        $col = function ($header, $value, $sort_key, $mobile, $align, array $extra = []) {
+            return array_merge([
+                'header'         => $header,
+                'value'          => $value,
+                'type'           => 'text',
+                'sortable'       => true,
+                'sort_meta_key'  => $sort_key,
+                'fallback'       => '—',
+                'mobile_visible' => $mobile,
+                'align'          => $align,
+            ], $extra);
+        };
+        $numeric = ['sort_raw_meta' => true];
+
+        return [
+            $col(esc_html__('TOP', 'immoadmin'), '{cf_door_number}', 'door_number', true, 'left'),
+            // floor: render_cell() maps floor_label/floor to the numeric
+            // `floor` meta, so GG < UG < EG < 1. OG < DG.
+            $col(esc_html__('Stockwerk', 'immoadmin'), '{cf_floor_label}', 'floor', false, 'left'),
+            $col(esc_html__('Zimmer', 'immoadmin'), '{cf_room_count}', 'room_count', true, 'center', $numeric),
+            $col(esc_html__('Wohnfläche', 'immoadmin'), '{cf_living_area_formatted}', 'living_area', true, 'right', $numeric),
+            $col(esc_html__('Garten', 'immoadmin'), '{cf_garden_area_formatted}', 'garden_area', false, 'right', $numeric),
+            $col(esc_html__('Balkon', 'immoadmin'), '{cf_balcony_area_formatted}', 'balcony_area', false, 'right', $numeric),
+            $col(esc_html__('Terrasse', 'immoadmin'), '{cf_terrace_area_formatted}', 'terrace_area', false, 'right', $numeric),
+            $col(esc_html__('Loggia', 'immoadmin'), '{cf_loggia_area_formatted}', 'loggia_area', false, 'right', $numeric),
+            // Redacted for reserved/sold/rented by render_cell() (price key).
+            $col(esc_html__('Kaufpreis', 'immoadmin'), '{cf_purchase_price_formatted}', 'purchase_price', true, 'right', $numeric),
+            $col(esc_html__('Status', 'immoadmin'), '{cf_status_label}', 'status', false, 'center', [
+                'type'                   => 'status_badge',
+                'status_color_from_meta' => true,
+                'compact'                => true,
+            ]),
+            // Accordion arrow: static icon, no header, no sort.
+            [
+                'header'           => '',
+                'value'            => '',
+                'type'             => 'icon',
+                'icon'             => ['library' => 'themify', 'icon' => 'ti-angle-down'],
+                'sortable'         => false,
+                'fallback'         => '',
+                'mobile_visible'   => true,
+                'compact'          => true,
+                'align'            => 'right',
+                'accordion_toggle' => true,
+            ],
+        ];
+    }
+
+    /**
+     * Accordion detail preset — native Bricks elements only, so the designer
+     * can restyle or delete each piece:
+     *
+     *   Detail (block, row, wraps)
+     *   ├─ Infos (block)
+     *   │  ├─ heading      "Top {cf_door_number}"
+     *   │  ├─ text-basic   Wohnfläche / Terrasse / Garten / Pool / Preis —
+     *   │  │               one element per line, each hidden by a native
+     *   │  │               "Dynamic data is not empty" condition
+     *   │  └─ Buttons (block, row)
+     *   │     ├─ button  "zum Plan"        → {cf_floor_plan_1}, new tab
+     *   │     └─ button  "Jetzt anfragen"  → #anfrage
+     *   └─ Grundrisse (block)
+     *      ├─ slider-nested "Grundriss-Slider"
+     *      │  └─ block (Query loop: ImmoAdmin Grundrisse)
+     *      │     └─ image {immoadmin_media_url}
+     *      └─ image {cf_floor_plan_1}   (alternative without slider)
+     *
+     * Wrapping uses flex-basis instead of breakpoint keys, so it works with
+     * custom / mobile-first breakpoints too. Every element carries explicit
+     * settings: Bricks only applies an element's own control defaults to a
+     * nested child whose settings are empty, so nothing here depends on them.
+     *
+     * Units with no floor plan: slider + single image + "zum Plan" are
+     * dropped by their conditions (conditions are always "true" inside the
+     * builder, so the designer still sees everything there).
+     */
+    public static function default_detail() {
+        $not_empty = function ($id, $tag) {
+            return [[[
+                'id'           => $id,
+                'key'          => 'dynamic_data',
+                'dynamic_data' => $tag,
+                'compare'      => 'empty_not',
+            ]]];
+        };
+
+        $line = function ($label, $tag, $id, $prefix = '') use ($not_empty) {
+            return [
+                'name'     => 'text-basic',
+                'label'    => $label,
+                'settings' => [
+                    'text'        => $label . ': ' . $prefix . $tag,
+                    '_conditions' => $not_empty($id, $tag),
+                ],
+            ];
+        };
+
+        $plan_condition = $not_empty('iaplan', '{cf_floor_plan_1}');
+
         return [
             'name'     => 'block',
             'label'    => esc_html__('Detail', 'immoadmin'),
-            'settings' => [],
+            'settings' => [
+                '_direction'  => 'row',
+                '_flexWrap'   => 'wrap',
+                '_alignItems' => 'flex-start',
+                '_columnGap'  => '40px',
+                '_rowGap'     => '24px',
+                '_padding'    => ['top' => '24px', 'right' => '24px', 'bottom' => '24px', 'left' => '24px'],
+            ],
             'children' => [
                 [
-                    'name'     => 'text',
+                    'name'     => 'block',
+                    'label'    => esc_html__('Infos', 'immoadmin'),
                     'settings' => [
-                        'text' => esc_html__('Detail-Inhalt hier ablegen.', 'immoadmin'),
+                        '_flexBasis' => '280px',
+                        '_flexGrow'  => '1',
+                        '_rowGap'    => '8px',
+                    ],
+                    'children' => [
+                        [
+                            'name'     => 'heading',
+                            'label'    => esc_html__('Titel', 'immoadmin'),
+                            'settings' => [
+                                'text' => 'Top {cf_door_number}',
+                                'tag'  => 'h3',
+                            ],
+                        ],
+                        $line(esc_html__('Wohnfläche', 'immoadmin'), '{cf_living_area_formatted}', 'ialiv1'),
+                        $line(esc_html__('Terrasse', 'immoadmin'), '{cf_terrace_area_formatted}', 'iater1'),
+                        $line(esc_html__('Garten', 'immoadmin'), '{cf_garden_area_formatted}', 'iagar1'),
+                        $line(esc_html__('Pool', 'immoadmin'), '{cf_pool_area_formatted}', 'iapoo1'),
+                        $line(esc_html__('Preis', 'immoadmin'), '{cf_purchase_price_formatted}', 'iapri1', '€ '),
+                        [
+                            'name'     => 'block',
+                            'label'    => esc_html__('Buttons', 'immoadmin'),
+                            'settings' => [
+                                '_direction'  => 'row',
+                                '_flexWrap'   => 'wrap',
+                                '_alignItems' => 'center',
+                                '_columnGap'  => '12px',
+                                '_rowGap'     => '12px',
+                                '_margin'     => ['top' => '16px'],
+                            ],
+                            'children' => [
+                                [
+                                    'name'     => 'button',
+                                    'label'    => esc_html__('zum Plan', 'immoadmin'),
+                                    'settings' => [
+                                        'text'        => esc_html__('zum Plan', 'immoadmin'),
+                                        'style'       => 'primary',
+                                        'outline'     => true,
+                                        'link'        => [
+                                            'type'   => 'external',
+                                            'url'    => '{cf_floor_plan_1}',
+                                            'newTab' => true,
+                                        ],
+                                        '_conditions' => $not_empty('iaplb1', '{cf_floor_plan_1}'),
+                                    ],
+                                ],
+                                [
+                                    'name'     => 'button',
+                                    'label'    => esc_html__('Jetzt anfragen', 'immoadmin'),
+                                    'settings' => [
+                                        'text'  => esc_html__('Jetzt anfragen', 'immoadmin'),
+                                        'style' => 'primary',
+                                        'link'  => [
+                                            'type' => 'external',
+                                            'url'  => '#anfrage',
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                [
+                    'name'     => 'block',
+                    'label'    => esc_html__('Grundrisse', 'immoadmin'),
+                    'settings' => [
+                        '_flexBasis' => '320px',
+                        '_flexGrow'  => '1',
+                        '_rowGap'    => '16px',
+                    ],
+                    'children' => [
+                        [
+                            'name'     => 'slider-nested',
+                            'label'    => esc_html__('Grundriss-Slider', 'immoadmin'),
+                            'settings' => [
+                                // 'slide' (not Bricks' default 'loop'): a
+                                // single plan must not be cloned into a fake
+                                // carousel.
+                                'type'        => 'slide',
+                                'autoHeight'  => true,
+                                'arrows'      => true,
+                                'pagination'  => true,
+                                'gap'         => '0',
+                                '_conditions' => $plan_condition,
+                            ],
+                            'children' => [
+                                [
+                                    'name'     => 'block',
+                                    'label'    => esc_html__('Grundriss (Loop)', 'immoadmin'),
+                                    'settings' => [
+                                        'hasLoop' => true,
+                                        'query'   => [
+                                            'objectType' => 'immoadmin_floor_plans',
+                                        ],
+                                    ],
+                                    'children' => [
+                                        [
+                                            'name'     => 'image',
+                                            'label'    => esc_html__('Grundriss', 'immoadmin'),
+                                            'settings' => [
+                                                'image'      => [
+                                                    'useDynamicData' => '{immoadmin_media_url}',
+                                                    'size'           => 'full',
+                                                ],
+                                                'caption'    => 'none',
+                                                '_width'     => '100%',
+                                                '_objectFit' => 'contain',
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                        [
+                            'name'     => 'image',
+                            'label'    => esc_html__('Grundriss 1 (ohne Slider)', 'immoadmin'),
+                            'settings' => [
+                                'image'       => [
+                                    'useDynamicData' => '{cf_floor_plan_1}',
+                                    'size'           => 'full',
+                                ],
+                                'caption'     => 'none',
+                                '_width'      => '100%',
+                                '_objectFit'  => 'contain',
+                                '_conditions' => $not_empty('iaplm1', '{cf_floor_plan_1}'),
+                            ],
+                        ],
                     ],
                 ],
             ],
         ];
     }
 
+    // -----------------------------------------------------------------
+    // BUILDING FILTER
+    // -----------------------------------------------------------------
+
     /**
-     * Children spawned once when the user drops the element on the canvas.
+     * Distinct building names of all published units, natural-sorted.
+     *
+     * Only needed to fill the builder dropdown, so the frontend (Bricks
+     * loads element controls on every request) never queries. Cached per
+     * sync run: the key contains the last-sync timestamp, so a new sync
+     * shows new buildings immediately and old entries just expire.
      */
-    public function get_nestable_children() {
-        return [$this->get_nestable_item()];
+    public static function building_name_options() {
+        $in_builder = (function_exists('bricks_is_builder') && bricks_is_builder())
+            || (function_exists('bricks_is_builder_call') && bricks_is_builder_call());
+        if (!$in_builder) {
+            return [];
+        }
+
+        $cache_key = 'immoadmin_bldg_' . md5((string) get_option('immoadmin_last_sync', '') . '|' . IMMOADMIN_VERSION);
+        $cached    = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        global $wpdb;
+        $names = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT pm.meta_value FROM {$wpdb->postmeta} pm"
+            . " INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id"
+            . " WHERE pm.meta_key = %s AND pm.meta_value <> ''"
+            . " AND p.post_type = %s AND p.post_status = 'publish'",
+            'building_name',
+            'immoadmin_wohnung'
+        ));
+
+        $options = self::building_options_from_names(is_array($names) ? $names : []);
+        set_transient($cache_key, $options, 12 * HOUR_IN_SECONDS);
+
+        return $options;
+    }
+
+    /**
+     * Pure: raw names → [name => name], unique, natural order ("Haus 9"
+     * before "Haus 11").
+     */
+    public static function building_options_from_names(array $names) {
+        $clean = self::sanitize_building_selection($names);
+        usort($clean, 'strnatcasecmp');
+
+        $options = [];
+        foreach ($clean as $name) {
+            $options[$name] = $name;
+        }
+        return $options;
+    }
+
+    /**
+     * Normalise the stored control value: Bricks saves a multi-select as an
+     * array, a single select as a string. Same sanitizer as the sync uses
+     * for building_name, so the comparison matches what is in the DB.
+     */
+    public static function sanitize_building_selection($raw) {
+        if (is_string($raw) || is_numeric($raw)) {
+            $raw = [$raw];
+        }
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($raw as $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $value = sanitize_text_field((string) $value);
+            if ($value !== '' && !in_array($value, $out, true)) {
+                $out[] = $value;
+            }
+        }
+
+        return array_slice($out, 0, 200);
+    }
+
+    /**
+     * Add "building_name IN (…)" to a meta_query without ever replacing or
+     * widening what is already there.
+     *
+     *  - Empty selection → the meta_query comes back untouched (identical).
+     *  - Our clause always sits in its OWN key-less group. Bricks' filter
+     *    merge (Query::merge_tax_or_meta_query_vars) folds clauses with the
+     *    same key+compare into each other index by index — a Bricks Filter
+     *    on building_name would otherwise overwrite our values and widen
+     *    the selection. A group without 'key' is skipped by that merge.
+     *  - The user's relation is respected: with AND (WP's default) our
+     *    group is appended; with OR the user's whole meta_query is nested
+     *    and AND-ed with ours, so it still narrows instead of OR-ing in.
+     */
+    public static function build_building_meta_query($existing, array $buildings) {
+        if (empty($buildings)) {
+            return $existing;
+        }
+
+        $ours = [
+            'relation' => 'AND',
+            [
+                'key'     => 'building_name',
+                'value'   => array_values($buildings),
+                'compare' => 'IN',
+            ],
+        ];
+
+        if (empty($existing) || !is_array($existing)) {
+            return ['relation' => 'AND', $ours];
+        }
+
+        // A bare single clause (['key' => …]) is not a list — wrap it.
+        if (isset($existing['key']) || isset($existing['value'])) {
+            return ['relation' => 'AND', $existing, $ours];
+        }
+
+        $relation = isset($existing['relation']) ? strtoupper((string) $existing['relation']) : 'AND';
+        if ($relation !== 'AND') {
+            return ['relation' => 'AND', $existing, $ours];
+        }
+
+        $existing[] = $ours;
+        return $existing;
+    }
+
+    /**
+     * bricks/posts/query_vars — apply the "Gebäude" control.
+     *
+     * Same pattern as apply_sort_query_vars(): everything comes from the
+     * $settings Bricks hands in (so it also works when a Filter element
+     * builds this query before the table renders), and we bail unless the
+     * settings carry our own, uniquely named control. Priority 10 runs
+     * before Bricks merges active Filter values (priority 999), so filters
+     * narrow WITHIN the selected buildings.
+     */
+    public static function apply_building_query_vars($query_vars, $settings, $element_id = '') {
+        if (!is_array($settings) || empty($settings['immoadmin_buildings']) || !is_array($query_vars)) {
+            return $query_vars;
+        }
+
+        $buildings = self::sanitize_building_selection($settings['immoadmin_buildings']);
+        if (empty($buildings)) {
+            return $query_vars;
+        }
+
+        $query_vars['meta_query'] = self::build_building_meta_query(
+            $query_vars['meta_query'] ?? [],
+            $buildings
+        );
+
+        return $query_vars;
     }
 
     // -----------------------------------------------------------------
@@ -1116,7 +1580,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $output .= '<div class="' . esc_attr(implode(' ', $row_classes)) . '"' . $row_attr . '>';
 
         foreach ($columns as $idx => $col) {
-            $output .= self::render_cell($col, $idx, $is_restricted);
+            $output .= self::render_cell($col, $idx, $is_restricted, $is_accordion);
         }
 
         $output .= '</div>'; // .immoadmin-table-row
@@ -1164,13 +1628,25 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
      * URL exists at the point where markup gets built — nothing to fish out of
      * the DOM, and nothing left in data-sort-value / href / aria-label either.
      */
-    private static function render_cell($col, $idx, $is_restricted = false) {
+    private static function render_cell($col, $idx, $is_restricted = false, $has_panel = true) {
         $type   = !empty($col['type']) ? $col['type'] : 'text';
         $value  = isset($col['value']) ? (string) $col['value'] : '';
         $align  = !empty($col['align']) ? $col['align'] : 'left';
         $mobile = !empty($col['mobile_visible']) ? '1' : '0';
 
         $redact = $is_restricted && self::is_sensitive_column($col);
+
+        // Accordion arrow (opt-in flag): a row without a panel (table mode,
+        // or a reserved/sold/rented unit) has nothing to open, so an arrow
+        // would promise something that doesn't exist. Keep the cell for the
+        // grid, drop the icon.
+        if ($type === 'icon' && !empty($col['accordion_toggle']) && !$has_panel) {
+            return '<div class="immoadmin-table-cell" role="cell"'
+                . ' data-align="' . esc_attr($align) . '"'
+                . ' data-mobile-visible="' . esc_attr($mobile) . '"'
+                . ' data-col-index="' . esc_attr((string) $idx) . '"'
+                . ' data-sort-value=""></div>';
+        }
 
         // Resolve dynamic data once. The global $post is set by Bricks during
         // the loop, so passing 0 lets the resolver find the right post.
@@ -1185,10 +1661,22 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // the JS falls back to string comparison and puts "1. OG" before
         // "EG". GG (negative) lands below UG/EG, a maisonette with its lower
         // floor. No numeric floor → the label stays the sort value.
+        //
+        // "Nach Zahlenwert sortieren" (opt-in, preset columns): sort by the
+        // raw meta of the sort key instead of the display string — the JS
+        // parseFloat()s the value, and "1.200.000" / "24,5 m²" (German
+        // thousands dot / decimal comma) would parse as 1.2 / 24. Never for
+        // redacted cells: the raw price must not reach data-sort-value.
+        $sort_key = !empty($col['sort_meta_key'])
+            ? (string) $col['sort_meta_key']
+            : self::guess_meta_key_from_dd($value);
+        if (!$redact && !empty($col['sort_raw_meta']) && $sort_key !== '') {
+            $raw = get_post_meta((int) get_the_ID(), $sort_key, true);
+            if (is_scalar($raw) && trim((string) $raw) !== '') {
+                $sort_value = trim((string) $raw);
+            }
+        }
         if (!$redact && class_exists('ImmoAdmin_Unit_Fields')) {
-            $sort_key = !empty($col['sort_meta_key'])
-                ? (string) $col['sort_meta_key']
-                : self::guess_meta_key_from_dd($value);
             if (ImmoAdmin_Unit_Fields::is_floor_sort_key($sort_key)) {
                 $sort_value = ImmoAdmin_Unit_Fields::floor_sort_value(
                     get_post_meta((int) get_the_ID(), 'floor', true),
@@ -1254,13 +1742,13 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                 break;
 
             case 'status_badge':
-                $status_class = sanitize_html_class($resolved);
+                $status_class = sanitize_html_class(self::status_class_source($col, $resolved));
                 $inner = '<span class="immoadmin-status-badge is-' . esc_attr($status_class) .
                     '">' . esc_html($resolved) . '</span>';
                 break;
 
             case 'status_dot':
-                $status_class = sanitize_html_class($resolved);
+                $status_class = sanitize_html_class(self::status_class_source($col, $resolved));
                 $inner = '<span class="immoadmin-status-dot is-' . esc_attr($status_class) .
                     '" aria-label="' . esc_attr($resolved) . '" title="' . esc_attr($resolved) . '"></span>';
                 break;
@@ -1289,7 +1777,9 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                 } else {
                     // Static icon, no link.
                     $aria_attr = $aria !== '' ? ' aria-label="' . esc_attr($aria) . '" role="img"' : ' aria-hidden="true"';
-                    $inner = '<span class="immoadmin-table-icon-wrap"' . $aria_attr . '>' . $icon_html . '</span>';
+                    $wrap_class = 'immoadmin-table-icon-wrap'
+                        . (!empty($col['accordion_toggle']) ? ' immoadmin-accordion-toggle' : '');
+                    $inner = '<span class="' . $wrap_class . '"' . $aria_attr . '>' . $icon_html . '</span>';
                 }
                 break;
 
@@ -1304,6 +1794,24 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         }
 
         return '<div class="immoadmin-table-cell"' . $cell_attrs . '>' . $inner . '</div>';
+    }
+
+    /**
+     * Source of the status CSS class (is-available, is-reserved, …).
+     *
+     * Default: the resolved value, as always — right for {cf_status}. With
+     * the opt-in "Farbe aus Status-Feld" the class comes from the unit's raw
+     * `status` meta, so a column can SHOW {cf_status_label} ("Verfügbar")
+     * and still get the colour of "available".
+     */
+    private static function status_class_source($col, $resolved) {
+        if (!empty($col['status_color_from_meta'])) {
+            $status = get_post_meta((int) get_the_ID(), 'status', true);
+            if (is_scalar($status) && (string) $status !== '') {
+                return (string) $status;
+            }
+        }
+        return (string) $resolved;
     }
 
     /**
@@ -1634,3 +2142,4 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 // during render() would miss that first, page-defining run.
 add_filter('bricks/posts/query_vars', ['ImmoAdmin_Units_Table', 'apply_sort_query_vars'], 10, 3);
 add_filter('posts_clauses', ['ImmoAdmin_Units_Table', 'apply_sort_clauses'], 10, 2);
+add_filter('bricks/posts/query_vars', ['ImmoAdmin_Units_Table', 'apply_building_query_vars'], 10, 3);

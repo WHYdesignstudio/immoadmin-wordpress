@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.12.0
+ * Version: 2.13.0
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.12.0');
+define('IMMOADMIN_VERSION', '2.13.0');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -265,6 +265,16 @@ add_action('init', function () {
         'immoadmin-units-table',
         'ImmoAdmin_Units_Table'
     );
+
+    // Query types "ImmoAdmin Grundrisse / Bilder / Dokumente" + the
+    // {immoadmin_media_*} tags used inside them. Registered here (init 11)
+    // so the queryTypes filter is in place before Bricks builds its control
+    // options on init 99. file_exists(): same partial-update guard as above.
+    $immoadmin_qt = IMMOADMIN_PLUGIN_DIR . 'bricks/query-types.php';
+    if (file_exists($immoadmin_qt)) {
+        require_once $immoadmin_qt;
+        ImmoAdmin_Bricks_Query_Types::register();
+    }
 
     // Tell Bricks our element is a loop parent so CSS generated for children
     // uses class-based selectors (.brxe-X) instead of ID selectors (#brxe-X).

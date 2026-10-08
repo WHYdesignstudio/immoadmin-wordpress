@@ -403,6 +403,23 @@
         opacity: 0.7;
     }
 
+    /* Accordion arrow (icon column with "Akkordion-Pfeil" flag, v2.13.0).
+     * Class is only emitted for columns that opted in, so existing icon
+     * columns are unaffected. */
+    :where(.brxe-immoadmin-units-table) .immoadmin-accordion-toggle {
+        display: inline-flex;
+        align-items: center;
+        transition: transform 0.2s ease;
+    }
+    :where(.brxe-immoadmin-units-table) .accordion-title-wrapper.brx-open .immoadmin-accordion-toggle {
+        transform: rotate(180deg);
+    }
+    @media (prefers-reduced-motion: reduce) {
+        :where(.brxe-immoadmin-units-table) .immoadmin-accordion-toggle {
+            transition: none;
+        }
+    }
+
     /* Empty state */
     :where(.brxe-immoadmin-units-table) .immoadmin-table-empty .immoadmin-table-cell {
         grid-column: 1 / -1;

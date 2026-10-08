@@ -207,6 +207,16 @@ class ImmoAdmin_Visibility {
     }
 
     /**
+     * Öffentlicher Einstieg für andere Lesepfade (z.B. die Bricks-Query
+     * "ImmoAdmin Dokumente"): true = Preise/Dokumente dieser Einheit dürfen
+     * dem aktuellen Besucher NICHT gezeigt werden. Gleiche Regeln wie REST:
+     * eingeschränkter Status und keine Bearbeitungsrechte.
+     */
+    public static function hides_sensitive_data_for($post) {
+        return self::is_restricted($post) && !self::can_edit_unit($post);
+    }
+
+    /**
      * Ist die Einheit eingeschränkt (= nicht öffentlich verfügbar)?
      */
     private static function is_restricted($post) {
