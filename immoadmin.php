@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.14.0
+ * Version: 2.15.0
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.14.0');
+define('IMMOADMIN_VERSION', '2.15.0');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -274,8 +274,9 @@ add_action('init', function () {
         'ImmoAdmin_Units_Table'
     );
 
-    // Filter widgets (v2.14.0): act on every units-table with the same
-    // "Filter-Gruppe". register_element() skips unreadable files itself; the
+    // Filter widgets (v2.14.0): act on the units-tables picked under
+    // "Ziel-Tabellen" / with the same "Filter-Gruppe", or on all of them
+    // (v2.15.0). register_element() skips unreadable files itself; the
     // class_exists() check keeps a partial update from registering elements
     // whose helper class is missing.
     if (class_exists('ImmoAdmin_Filter_Data')) {
@@ -290,6 +291,19 @@ add_action('init', function () {
             }
         }
     }
+
+    // "Ziel-Tabellen" (v2.15.0): keep the dropdown of the filter elements in
+    // sync with the unsaved builder state. Builder main window only — never
+    // loaded on the frontend or in the canvas iframe.
+    add_action('wp_enqueue_scripts', function () {
+        if (!function_exists('bricks_is_builder_main') || !bricks_is_builder_main()) {
+            return;
+        }
+        if (!file_exists(IMMOADMIN_PLUGIN_DIR . 'bricks/assets/js/builder-targets.js')) {
+            return;
+        }
+        wp_enqueue_script('immoadmin-builder-targets', IMMOADMIN_PLUGIN_URL . 'bricks/assets/js/builder-targets.js', array(), IMMOADMIN_VERSION, true);
+    });
 
     // Query types "ImmoAdmin Grundrisse / Bilder / Dokumente" + the
     // {immoadmin_media_*} tags used inside them. Registered here (init 11)

@@ -4,9 +4,10 @@
  *
  * Abstract, never registered itself. Structure and control naming follow
  * Bricks' own Filter elements (includes/elements/filter-base.php) so the
- * panel feels familiar: the connecting setting sits on top (Bricks: "Target
- * query" — here: "Filter-Gruppe"), style controls live in groups below and
- * map to CSS via the native `css` arrays.
+ * panel feels familiar: the connecting settings sit on top (Bricks: "Target
+ * query" — here: "Ziel-Tabellen" (v2.15.0) and the optional "Filter-Gruppe"),
+ * style controls live in groups below and map to CSS via the native `css`
+ * arrays.
  *
  * @package ImmoAdmin\Bricks
  */
@@ -41,16 +42,56 @@ if (!class_exists('ImmoAdmin_Filter_Element')) {
             ImmoAdmin_Filter_Data::enqueue_assets();
         }
 
-        /** "Filter-Gruppe" — the native "Target query", but one name for many tables. */
+        /**
+         * "Ziel-Tabellen" — like Bricks' native "Target query", but a
+         * multi-select limited to ImmoAdmin Units Tables (v2.15.0). Options
+         * come from the saved page (incl. templates / components) and are
+         * refreshed live from the unsaved builder state by
+         * bricks/assets/js/builder-targets.js.
+         */
+        protected function targets_control($help) {
+            static $opts = null;
+            if ($opts === null) {
+                $opts = ImmoAdmin_Filter_Data::builder_target_options();
+            }
+            return [
+                'label'             => esc_html__('Ziel-Tabellen', 'immoadmin'),
+                'type'              => 'select',
+                'options'           => $opts['options'],
+                'multiple'          => true,
+                'searchable'        => true,
+                'clearable'         => true,
+                'placeholder'       => esc_html__('Alle Tabellen dieser Seite', 'immoadmin'),
+                'immoadminExternal' => $opts['external'],
+                'description'       => $help,
+            ];
+        }
+
+        /**
+         * "Filter-Gruppe" (v2.14.0) — still honoured, now optional. New
+         * elements get no default any more (empty = all tables / the picked
+         * Ziel-Tabellen); saved elements keep the 'wohnungen' Bricks stored
+         * when they were created, so existing setups work unchanged.
+         */
         protected function group_control() {
             return [
-                'label'          => esc_html__('Filter-Gruppe', 'immoadmin'),
+                'label'          => esc_html__('Filter-Gruppe (optional)', 'immoadmin'),
                 'type'           => 'text',
                 'inline'         => true,
-                'default'        => 'wohnungen',
-                'placeholder'    => 'wohnungen',
+                'placeholder'    => esc_html__('keine', 'immoadmin'),
                 'hasDynamicData' => false,
-                'description'    => esc_html__('Gleicher Name wie bei „Filter-Gruppe“ der Wohnungstabellen. Alle Filter und Tabellen mit diesem Namen wirken zusammen.', 'immoadmin'),
+                'description'    => esc_html__('Nur für Fortgeschrittene: wirkt zusätzlich auf alle Tabellen mit derselben „Filter-Gruppe“. Hat keine Tabelle auf der Seite diese Gruppe und sind keine Ziel-Tabellen gewählt, wirkt der Filter auf alle Tabellen.', 'immoadmin'),
+            ];
+        }
+
+        /** Both connecting controls, on top of the panel. */
+        protected function targeting_controls($help = null) {
+            if ($help === null) {
+                $help = esc_html__('Leer = alle ImmoAdmin-Tabellen auf dieser Seite. Sonst filtert dieser Filter nur die gewählten Tabellen (mehrere möglich).', 'immoadmin');
+            }
+            return [
+                'filter_targets' => $this->targets_control($help),
+                'filter_group'   => $this->group_control(),
             ];
         }
 
@@ -58,24 +99,35 @@ if (!class_exists('ImmoAdmin_Filter_Element')) {
             return ImmoAdmin_Filter_Data::sanitize_group($this->settings['filter_group'] ?? '');
         }
 
+        protected function get_targets() {
+            return ImmoAdmin_Filter_Data::sanitize_targets($this->settings['filter_targets'] ?? []);
+        }
+
         /**
-         * Root attributes every filter element carries. Returns false (and
-         * shows a builder placeholder) when no group is set.
+         * Root attributes every filter element carries. Neither targets nor
+         * group = all ImmoAdmin tables on the page (resolved in filters.js).
+         *
+         * @return string the group ('' = none)
          */
         protected function prepare_root($type) {
-            $group = $this->get_group();
-            if ($group === '') {
-                $this->render_element_placeholder([
-                    'title' => esc_html__('Bitte eine Filter-Gruppe eintragen (gleicher Name wie bei den Wohnungstabellen).', 'immoadmin'),
-                ]);
-                return false;
-            }
+            $group   = $this->get_group();
+            $targets = $this->get_targets();
             $this->set_attribute('_root', 'data-immoadmin-filter', $type);
-            $this->set_attribute('_root', 'data-immoadmin-filter-group', $group);
+            if ($group !== '') {
+                $this->set_attribute('_root', 'data-immoadmin-filter-group', $group);
+            }
+            if (!empty($targets)) {
+                $this->set_attribute('_root', 'data-immoadmin-filter-targets', implode(' ', $targets));
+            }
             if (ImmoAdmin_Filter_Data::is_builder()) {
                 $this->set_attribute('_root', 'data-builder', '1');
             }
             return $group;
+        }
+
+        /** Tell tables rendered later on this page that this filter acts on them. */
+        protected function announce($custom_key = '') {
+            ImmoAdmin_Filter_Data::register_filter($this->id, $this->name, $this->get_targets(), $this->get_group(), $custom_key);
         }
 
         /** Native Bricks button classes (Size / Style / Outline / Circle presets). */

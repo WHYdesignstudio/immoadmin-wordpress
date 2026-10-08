@@ -771,7 +771,10 @@ $b = new ImmoAdmin_Filter_Buttons(array('id' => 'fb1', 'settings' => array('filt
 $b->set_control_groups(); $b->set_controls();
 check('category ImmoAdmin', $b->category, 'immoadmin');
 check('name', $b->name, 'immoadmin-filter-buttons');
-check('group control default "wohnungen" (new element only)', $b->controls['filter_group']['default'], 'wohnungen');
+check('v2.15: group control has no default any more (new elements = all tables)', array_key_exists('default', $b->controls['filter_group']), false);
+check('v2.15: "Ziel-Tabellen" multi-select on top, before the group', array(array_slice(array_keys($b->controls), 0, 2), $b->controls['filter_targets']['type'], $b->controls['filter_targets']['multiple']), array(array('filter_targets', 'filter_group'), 'select', true));
+check('v2.15: Ziel-Tabellen help text explains the empty default', strpos($b->controls['filter_targets']['description'], 'Leer = alle ImmoAdmin-Tabellen auf dieser Seite') === 0, true);
+check('v2.15: no builder → no options (frontend never scans for the dropdown)', $b->controls['filter_targets']['options'], array());
 check('field options include all fields', array_keys($b->controls['field']['options']), array('building_name', 'floor', 'orientation', 'room_count', '__custom'));
 check('style: Aktiv background maps to .brx-option-active', $b->controls['optionActiveBackground']['css'][0]['selector'], '.immoadmin-filter-option.brx-option-active');
 check('style: Hover typography maps to :hover', $b->controls['optionHoverTypography']['css'][0]['selector'], '.immoadmin-filter-option:hover');
@@ -798,7 +801,10 @@ $html3 = $render($b3);
 check('floor with own options GG EG OG DG', (preg_match_all('/>([^<]+)<\/button>/', $html3, $m3) ? $m3[1] : null), array('GG', 'EG', 'OG', 'DG'));
 check('floor match type', json_decode($attr($html3, 'data-immoadmin-filter-config'), true)['match'], 'floor');
 $nog = new ImmoAdmin_Filter_Buttons(array('id' => 'fb4', 'settings' => array('filter_group' => '', 'field' => 'floor')));
-check('no group, frontend → no output', $render($nog), '');
+$nogh = $render($nog);
+check('v2.15: no group → renders (acts on all tables), no group/targets attrs', array($attr($nogh, 'data-immoadmin-filter'), strpos($nogh, 'data-immoadmin-filter-group') === false, strpos($nogh, 'data-immoadmin-filter-targets') === false), array('buttons', true, true));
+$tgt = new ImmoAdmin_Filter_Buttons(array('id' => 'fb4b', 'settings' => array('field' => 'floor', 'filter_targets' => array('tbla', 'tblb', 'bad id"', 'tbla'))));
+check('v2.15: targets attr (sanitized, unique, space-separated)', $attr($render($tgt), 'data-immoadmin-filter-targets'), 'tbla tblb');
 $custom_el = new ImmoAdmin_Filter_Buttons(array('id' => 'fb5', 'settings' => array('filter_group' => 'wohnungen', 'field' => '__custom', 'field_custom' => 'floor_label')));
 $render($custom_el);
 check('custom field registers its key for later tables', $FD::registered_keys('wohnungen'), array('floor_label'));
@@ -927,6 +933,121 @@ $fh3 = immoadmin_test_render_table(array_merge(immoadmin_test_table_cases()['tab
 check('custom hide without selector → no hide attr', strpos($fh3, 'data-immoadmin-filter-hide') === false, true);
 $GLOBALS['__meta'][701]['status'] = 'available';
 unset($GLOBALS['__meta'][701]['parking_price'], $GLOBALS['__meta'][702]['parking_price']);
+$FD::set_rows_for_tests(null);
+
+// ================================================================ v2.15.0
+// Ziel-Tabellen: targeting by element id, empty = all tables
+
+section('targeting: same cases as JS (tests/fixtures/targeting-cases.json)');
+foreach (json_decode(file_get_contents(__DIR__ . '/fixtures/targeting-cases.json'), true) as $c) {
+    $present = $FD::groups_present($c['page']);
+    $got = array();
+    foreach ($c['page'] as $t) {
+        if ($FD::applies_to_table($c['spec']['targets'], $c['spec']['group'], $t['id'], $t['group'], $present)) {
+            $got[] = $t['id'];
+        }
+    }
+    check($c['name'], $got, $c['expected']);
+}
+check('sanitize_targets: array, unique, junk dropped', $FD::sanitize_targets(array('t1', 't1', 'bad id', '"x"', 7, array('y'), 't2')), array('t1', '7', 't2'));
+check('sanitize_targets: string / null', array($FD::sanitize_targets('t1, t2 t3'), $FD::sanitize_targets(null)), array(array('t1', 't2', 't3'), array()));
+check('id_matches: component instance yes, longer id no', array($FD::id_matches('abc123-x1', 'abc123'), $FD::id_matches('abc1234', 'abc123')), array(true, false));
+
+section('targeting: dropdown labels');
+check('no label → "Units Table #id"', $FD::table_label(array('id' => 'abc123', 'name' => 'immoadmin-units-table')), 'Units Table #abc123');
+check('Gebäude filter value shown', $FD::table_label(array('id' => 'abc123', 'settings' => array('immoadmin_buildings' => array('Presto')))), 'Units Table · Presto #abc123');
+check('Bricks custom label wins, several Gebäude', $FD::table_label(array('id' => 'k9', 'label' => 'Haus <b>A</b> ', 'settings' => array('immoadmin_buildings' => array('Presto', 'Largo')))), 'Haus A · Presto, Largo #k9');
+check('from a template / component', $FD::table_label(array('id' => 'k9'), 'Template'), 'Units Table #k9 (Template)');
+
+section('targeting: page scan (templates, components)');
+$page_content = array(
+    array('id' => 'sec1', 'name' => 'section', 'parent' => 0),
+    array('id' => 'fall', 'name' => 'immoadmin-filter-buttons', 'settings' => array('field' => 'building_name')),
+    array('id' => 'ftwo', 'name' => 'immoadmin-filter-range', 'settings' => array('field' => '__custom', 'field_custom' => 'balcony_area', 'filter_targets' => array('tblb', 'tblc'))),
+    array('id' => 'fact', 'name' => 'immoadmin-filter-actions', 'settings' => array('filter_targets' => array('tbla'))),
+    array('id' => 'tbla', 'name' => 'immoadmin-units-table', 'label' => 'Presto-Tabelle', 'settings' => array()),
+    array('id' => 'tblb', 'name' => 'immoadmin-units-table', 'settings' => array('immoadmin_buildings' => array('Largo'))),
+    array('id' => 'tpl1', 'name' => 'template', 'settings' => array('template' => 55)),
+    array('id' => 'cmp1', 'name' => 'div', 'cid' => 'comp9'),
+    array('id' => 'tpl2', 'name' => 'template', 'settings' => array('template' => 55)), // same template twice → scanned once
+);
+$resolver_calls = array();
+$resolver = function ($type, $id) use (&$resolver_calls) {
+    $resolver_calls[] = $type . ':' . $id;
+    if ($type === 'template' && $id === 55) {
+        return array(array('id' => 'tblc', 'name' => 'immoadmin-units-table', 'settings' => array('immoadmin_filter_group' => 'Wohnungen')),
+            array('id' => 'tpl3', 'name' => 'template', 'settings' => array('template' => 55))); // self-reference
+    }
+    if ($type === 'component' && $id === 'comp9') {
+        return array(array('id' => 'tbld', 'name' => 'immoadmin-units-table', 'settings' => array()));
+    }
+    return array();
+};
+$idx = $FD::index_elements(array($page_content, 'not-a-list'), $resolver);
+check('tables found incl. template + component', array_keys($idx['tables']), array('tbla', 'tblb', 'tblc', 'tbld'));
+check('each template / component resolved once', $resolver_calls, array('template:55', 'component:comp9'));
+check('table group sanitized', $idx['tables']['tblc']['group'], 'wohnungen');
+check('filters with targets, group, custom key', array($idx['filters']['fall']['targets'], $idx['filters']['ftwo']['targets'], $idx['filters']['ftwo']['key'], $idx['filters']['fact']['name']),
+    array(array(), array('tblb', 'tblc'), 'balcony_area', 'immoadmin-filter-actions'));
+$opts = $FD::target_options_from_index($idx);
+check('dropdown options (labels)', $opts['options'], array('tbla' => 'Presto-Tabelle #tbla', 'tblb' => 'Units Table · Largo #tblb',
+    'tblc' => 'Units Table #tblc (Template)', 'tbld' => 'Units Table #tbld (Komponente)'));
+check('template/component tables flagged for the live builder list', $opts['external'], array('tblc', 'tbld'));
+check('participation: all-mode filter reaches every table', $FD::table_participation($idx, 'tbla', ''), array('active' => true, 'keys' => array()));
+check('participation: targeted filter adds its custom key', $FD::table_participation($idx, 'tblb', ''), array('active' => true, 'keys' => array('balcony_area')));
+$only_targeted = array('tables' => $idx['tables'], 'filters' => array('ftwo' => $idx['filters']['ftwo'], 'fact' => $idx['filters']['fact']));
+check('participation: not targeted → inactive (actions alone never count)', $FD::table_participation($only_targeted, 'tbla', ''), array('active' => false, 'keys' => array()));
+check('participation: component instance id', $FD::table_participation($only_targeted, 'tblc-inst1', '')['active'], true);
+check('no filters on the page → nothing', $FD::table_participation(array('tables' => $idx['tables'], 'filters' => array()), 'tbla', ''), array('active' => false, 'keys' => array()));
+check('no Bricks → empty element lists', $FD::bricks_element_lists(null), array());
+check('builder options outside the builder → empty', $FD::builder_target_options(), array('options' => array(), 'external' => array()));
+
+section('units-table: v2.15.0 targeting output');
+$base_cases = immoadmin_test_table_cases();
+$FD::set_rows_for_tests($rows);
+$FD::set_page_index_for_tests(array('tables' => array('tbl777' => array('id' => 'tbl777', 'group' => '')), 'filters' => array()));
+check('page with tables but no filter → byte-identical', immoadmin_test_render_table($base_cases['accordion-preset']), $baseline['accordion-preset']);
+$FD::set_page_index_for_tests(array('tables' => array(), 'filters' => array('fx' => array('id' => 'fx', 'name' => 'immoadmin-filter-actions', 'targets' => array(), 'group' => '', 'key' => ''))));
+check('only a Filter-Aktionen element → byte-identical', immoadmin_test_render_table($base_cases['accordion-preset']), $baseline['accordion-preset']);
+$FD::set_page_index_for_tests(array('tables' => array(), 'filters' => array('fx' => array('id' => 'fx', 'name' => 'immoadmin-filter-buttons', 'targets' => array('other1'), 'group' => '', 'key' => ''))));
+check('filter targeting another table → byte-identical', immoadmin_test_render_table($base_cases['accordion-preset']), $baseline['accordion-preset']);
+
+$FD::set_page_index_for_tests(array('tables' => array(), 'filters' => array('fx' => array('id' => 'fx', 'name' => 'immoadmin-filter-buttons', 'targets' => array(), 'group' => '', 'key' => ''))));
+$zc = immoadmin_test_render_table($base_cases['accordion-preset']);
+check('zero-config filter → table marked filterable (no group attr)', array($attr($zc, 'data-immoadmin-filterable'), strpos($zc, 'data-immoadmin-filter-group') === false), array('1', true));
+check('zero-config: every unit carries values, prices of reserved/sold redacted', array(substr_count($zc, 'data-immoadmin-filter-values='), strpos($zc, '500000') === false && strpos($zc, '760000') === false), array(4, true));
+check('zero-config: identical to baseline apart from the filter attributes', preg_replace('/ data-immoadmin-filter(able|-values)="[^"]*"/', '', $zc), $baseline['accordion-preset']);
+$FD::set_page_index_for_tests(array('tables' => array(), 'filters' => array()));
+$FD::register_filter('flate', 'immoadmin-filter-buttons', array('tbl777'), '', 'balcony_area');
+$late = immoadmin_test_render_table(array_merge($base_cases['table-legacy-dim'], array('immoadmin_filter_empty' => 'message', 'immoadmin_filter_hide_with' => 'parent')));
+check('filter announced while rendering (scan missed it) → table joins, custom key on rows', array($attr($late, 'data-immoadmin-filterable'), substr_count($late, '&quot;balcony_area&quot;:null')), array('1', 4));
+check('ungrouped targeted table honours "Keine Treffer" / wrapper settings', array($attr($late, 'data-immoadmin-filter-empty'), $attr($late, 'data-immoadmin-filter-hide')), array('message', 'parent'));
+$FD::set_page_index_for_tests(array('tables' => array(), 'filters' => array('fx' => array('id' => 'fx', 'name' => 'immoadmin-filter-buttons', 'targets' => array(), 'group' => 'wohnungen', 'key' => 'balcony_area'))));
+$grp = immoadmin_test_render_table(array_merge($base_cases['accordion-preset'], array('immoadmin_filter_group' => 'wohnungen')));
+check('v2.14.0 grouped table: group attr, no filterable attr', array($attr($grp, 'data-immoadmin-filter-group'), strpos($grp, 'data-immoadmin-filterable') === false), array('wohnungen', true));
+check('v2.14.0 grouped table: custom key of a filter BELOW it now found too', strpos($grp, '&quot;balcony_area&quot;') !== false, true);
+$GLOBALS['__is_builder'] = true;
+$FD::reset_registered_keys();
+$bld = immoadmin_test_render_table($base_cases['accordion-preset']);
+check('builder: no scan, ungrouped table untouched', strpos($bld, 'data-immoadmin-filter') === false, true);
+$GLOBALS['__is_builder'] = false;
+$FD::reset_registered_keys();
+$FD::set_rows_for_tests(null);
+
+section('elements: v2.15.0 targeting attributes');
+$FD::set_rows_for_tests($rows);
+$z = $render(new ImmoAdmin_Filter_Range(array('id' => 'frz', 'name' => 'immoadmin-filter-range', 'settings' => array('field' => 'living_area'))));
+check('range without config: renders, no group/targets attrs', array($attr($z, 'data-immoadmin-filter'), strpos($z, 'data-immoadmin-filter-group') === false, strpos($z, 'data-immoadmin-filter-targets') === false), array('range', true, true));
+$ia = $FD::page_index();
+check('rendered filters announce themselves for later tables', isset($ia['filters']['frz']) && $ia['filters']['frz']['targets'] === array(), true);
+$az = $render(new ImmoAdmin_Filter_Actions(array('id' => 'faz', 'settings' => array('filter_targets' => array('tbla')))));
+check('actions: targets attr + still renders without group', array($attr($az, 'data-immoadmin-filter-targets'), $attr($az, 'data-apply-on')), array('tbla', 'click'));
+$aold = $render(new ImmoAdmin_Filter_Actions(array('id' => 'fao', 'settings' => array('filter_group' => 'wohnungen'))));
+check('v2.14.0 saved actions element: unchanged group attr', $attr($aold, 'data-immoadmin-filter-group'), 'wohnungen');
+$ac = new ImmoAdmin_Filter_Actions(array('id' => 'fac', 'settings' => array()));
+$ac->set_control_groups(); $ac->set_controls();
+check('actions help text explains coordination', strpos($ac->controls['filter_targets']['description'], 'Leer = alle ImmoAdmin-Tabellen auf dieser Seite') === 0 && strpos($ac->controls['filter_targets']['description'], 'mindestens eine') !== false, true);
+$FD::reset_registered_keys();
 $FD::set_rows_for_tests(null);
 
 // cleanup temp dir

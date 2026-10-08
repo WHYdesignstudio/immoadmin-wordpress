@@ -2,13 +2,15 @@
 /**
  * Bricks Element: ImmoAdmin Filter-Aktionen (v2.14.0)
  *
- * "Suchen" + "Filter zurücksetzen" for one Filter-Gruppe — the counterpart
+ * "Suchen" + "Filter zurücksetzen" for the filters it is responsible for — the counterpart
  * of Bricks' native "Filter – Submit / Reset", both buttons in one element,
  * each separately stylable and hideable.
  *
- * Its "Filter anwenden" setting decides for the whole group: on "Suchen"
- * click (default) or instantly on every change. A group without this element
- * always filters instantly.
+ * Responsible for (v2.15.0): every filter that acts on at least one of
+ * its tables (Ziel-Tabellen ∪ Filter-Gruppe; neither = all tables, i.e.
+ * all filters on the page). Its "Filter anwenden" setting decides for those
+ * filters: on "Suchen" click (default) or instantly on every change. A
+ * filter no actions element is responsible for always filters instantly.
  *
  * @package ImmoAdmin\Bricks
  */
@@ -39,7 +41,9 @@ class ImmoAdmin_Filter_Actions extends ImmoAdmin_Filter_Element {
     }
 
     public function set_controls() {
-        $this->controls['filter_group'] = $this->group_control();
+        $this->controls = array_merge($this->controls, $this->targeting_controls(
+            esc_html__('Leer = alle ImmoAdmin-Tabellen auf dieser Seite: „Suchen“ und „Zurücksetzen“ gelten dann für alle Filter der Seite. Sonst gelten sie für alle Filter, die auf mindestens eine der gewählten Tabellen wirken.', 'immoadmin')
+        ));
 
         $this->controls['apply_on'] = [
             'label'       => esc_html__('Filter anwenden', 'immoadmin'),
@@ -50,7 +54,7 @@ class ImmoAdmin_Filter_Actions extends ImmoAdmin_Filter_Element {
             ],
             'inline'      => true,
             'placeholder' => esc_html__('Beim Klick auf „Suchen“', 'immoadmin'),
-            'description' => esc_html__('Gilt für alle Filter dieser Gruppe. Ohne dieses Element filtern die Filter immer sofort.', 'immoadmin'),
+            'description' => esc_html__('Gilt für alle Filter, für die dieses Element zuständig ist (siehe Ziel-Tabellen). Filter ohne zuständiges Aktionen-Element filtern immer sofort.', 'immoadmin'),
         ];
 
         // ---------- Suchen ----------
@@ -227,10 +231,7 @@ class ImmoAdmin_Filter_Actions extends ImmoAdmin_Filter_Element {
 
     public function render() {
         $settings = $this->settings;
-        $group = $this->prepare_root('actions');
-        if ($group === false) {
-            return;
-        }
+        $this->prepare_root('actions');
 
         $apply_on = ($settings['apply_on'] ?? 'click') === 'change' ? 'change' : 'click';
         $this->set_attribute('_root', 'data-apply-on', $apply_on);

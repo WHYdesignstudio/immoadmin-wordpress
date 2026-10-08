@@ -1,25 +1,31 @@
 /**
- * ImmoAdmin filter widgets — page controller (v2.14.0).
+ * ImmoAdmin filter widgets — page controller (v2.14.0, targeting v2.15.0).
  *
- * Connects every element with data-immoadmin-filter-group="X":
- *   - filters  [data-immoadmin-filter="buttons" | "range"]
- *   - actions  [data-immoadmin-filter="actions"]  (Suchen / Zurücksetzen)
- *   - tables   [data-element="immoadmin-units-table"][data-immoadmin-filter-group]
+ *   filters  [data-immoadmin-filter="buttons" | "range"]
+ *   actions  [data-immoadmin-filter="actions"]  (Suchen / Zurücksetzen)
+ *   tables   [data-element="immoadmin-units-table"] that a filter acts on —
+ *            server-side marked by data-immoadmin-filter-group (v2.14.0) or
+ *            data-immoadmin-filterable (v2.15.0); id = data-bricks-query-id
+ *
+ * Which tables a filter acts on: data-immoadmin-filter-targets (Ziel-Tabellen)
+ * ∪ tables with its data-immoadmin-filter-group; neither → all tables
+ * (filter-logic.js appliesTo()). An actions element is responsible for every
+ * filter sharing a table with it (all mode: every filter on the page).
  *
  * Client-side only: rows carry their values in data-immoadmin-filter-values
  * (prices already redacted server-side). Matching lives in filter-logic.js.
  *
- * Never touches a table without a group, never touches Bricks' own filters.
+ * Never touches a table no filter acts on, never touches Bricks' own filters.
  */
 (function () {
     'use strict';
 
-    var L = window.ImmoAdminFilterLogic;
-    if (!L) return;
+    var L = null; // resolved in init(): robust against late / reordered script loading
 
     var ROW_ATTR = 'data-immoadmin-filter-values';
     var HIDDEN_ATTR = 'data-immoadmin-filter-hidden';
-    var groups = {};
+    var filters = []; // { el, impl, spec, committed, pending }
+    var actions = []; // { el, spec }
 
     function each(list, fn) { Array.prototype.forEach.call(list || [], fn); }
 
@@ -27,28 +33,19 @@
         try { return s ? JSON.parse(s) : fallback; } catch (e) { return fallback; }
     }
 
-    function getGroup(name) {
-        if (!groups[name]) {
-            groups[name] = { name: name, filters: [], actions: [], pending: false, applied: [] };
-        }
-        return groups[name];
-    }
-
-    function isDeferred(group) {
-        // Any actions element set to "Beim Klick auf Suchen" (default) defers.
-        // No actions element at all → instant.
-        for (var i = 0; i < group.actions.length; i++) {
-            if (group.actions[i].getAttribute('data-apply-on') !== 'change') return true;
-        }
-        return false;
+    function specOf(el) {
+        return {
+            targets: L.parseTargets(el.getAttribute('data-immoadmin-filter-targets') || ''),
+            group: el.getAttribute('data-immoadmin-filter-group') || ''
+        };
     }
 
     // ------------------------------------------------------------ filters
 
-    function ButtonsFilter(el, group) {
+    function ButtonsFilter(el, onChange) {
         var self = this;
         this.el = el;
-        this.group = group;
+        this.onChange = onChange;
         this.config = parseJSON(el.getAttribute('data-immoadmin-filter-config'), {});
         this.id = el.id || ('iaf-' + Math.random().toString(36).slice(2));
 
@@ -75,7 +72,7 @@
             each(this.buttons(), function (b) { if (b !== btn) self.setActive(b, false); });
         }
         this.setActive(btn, on);
-        changed(this.group);
+        this.onChange();
     };
     ButtonsFilter.prototype.criterion = function () {
         var values = [];
@@ -89,10 +86,10 @@
         each(this.buttons(), function (b) { self.setActive(b, false); });
     };
 
-    function RangeFilter(el, group) {
+    function RangeFilter(el, onChange) {
         var self = this;
         this.el = el;
-        this.group = group;
+        this.onChange = onChange;
         this.config = parseJSON(el.getAttribute('data-immoadmin-filter-config'), {});
         this.id = el.id || ('iaf-' + Math.random().toString(36).slice(2));
         this.minInput = el.querySelector('input[type="range"].min');
@@ -105,7 +102,7 @@
         var onInput = function (e) {
             self.clamp(e.target === self.minInput ? 'min' : 'max');
             self.paint();
-            changed(self.group);
+            self.onChange();
         };
         this.minInput.addEventListener('input', onInput);
         this.maxInput.addEventListener('input', onInput);
@@ -168,10 +165,18 @@
 
     // ------------------------------------------------------------ tables
 
-    function tablesOf(groupName) {
+    // Tables some filter acts on (marked server-side), never builder previews.
+    function pageTables() {
         var out = [];
-        each(document.querySelectorAll('[data-element="immoadmin-units-table"][data-immoadmin-filter-group]'), function (t) {
-            if (t.getAttribute('data-immoadmin-filter-group') === groupName && t.getAttribute('data-builder') !== '1') out.push(t);
+        each(document.querySelectorAll('[data-element="immoadmin-units-table"]'), function (t) {
+            if (t.getAttribute('data-builder') === '1') return;
+            var group = t.getAttribute('data-immoadmin-filter-group');
+            if (!group && !t.hasAttribute('data-immoadmin-filterable')) return;
+            out.push({
+                el: t,
+                id: t.getAttribute('data-bricks-query-id') || String(t.id || '').replace(/^brxe-/, ''),
+                group: group || ''
+            });
         });
         return out;
     }
@@ -185,6 +190,14 @@
         if (!grid) return out;
         each(grid.querySelectorAll('[' + ROW_ATTR + ']'), function (n) { out.push(n); });
         return out;
+    }
+
+    // Unit rows without filter values: rows Bricks re-rendered over AJAX
+    // (its own filter / pagination) for a table that only joined via a
+    // filter on the page. Such a table is left alone instead of hidden.
+    function hasRowsWithoutValues(table) {
+        var grid = table.querySelector('.immoadmin-table');
+        return !!(grid && grid.querySelector('[data-unit-id]:not([' + ROW_ATTR + ']):not(.accordion-title-wrapper)'));
     }
 
     function rowValues(row) {
@@ -266,25 +279,48 @@
 
     // ------------------------------------------------------------ apply
 
-    function currentCriteria(group) {
-        return group.filters.map(function (f) { return f.criterion(); }).filter(Boolean);
+    function commit(f) {
+        f.committed = f.impl.criterion();
+        f.pending = false;
     }
 
-    // criteria omitted → take the filters' current state (Suchen / instant
-    // change). Passed in → re-apply what was applied before (after Bricks
-    // swapped rows), without committing changes the visitor has not searched.
-    function apply(group, criteria) {
-        if (!criteria) {
-            criteria = currentCriteria(group);
-            group.applied = criteria;
-            group.pending = false;
-        }
+    function coveringActions(f, tables) {
+        return actions.filter(function (a) { return L.actionCovers(a.spec, f.spec, tables); });
+    }
 
-        var wrappers = []; // [{ el, tables: [{hidden}] }]
+    function coveredFilters(a, tables) {
+        return filters.filter(function (f) { return L.actionCovers(a.spec, f.spec, tables); });
+    }
+
+    function isDeferred(f, tables) {
+        // An actions element on "Beim Klick auf Suchen" (default) defers;
+        // no responsible actions element → instant.
+        var mine = coveringActions(f, tables);
+        for (var i = 0; i < mine.length; i++) {
+            if (mine[i].el.getAttribute('data-apply-on') !== 'change') return true;
+        }
+        return false;
+    }
+
+    // Show / hide rows and tables from the COMMITTED state of the filters
+    // (what the visitor searched), never from unsaved changes.
+    function render() {
+        var tables = pageTables();
+        var present = L.groupsPresent(tables);
+        var wrappers = []; // [{ el, hidden: [bool] }]
         var summary = [];
 
-        tablesOf(group.name).forEach(function (table) {
+        tables.forEach(function (t) {
+            var table = t.el;
             var rows = rowsOf(table);
+            if (!rows.length && hasRowsWithoutValues(table)) {
+                setHidden(table, false);
+                return;
+            }
+            var criteria = [];
+            filters.forEach(function (f) {
+                if (f.committed && L.appliesTo(f.spec, t, present)) criteria.push(f.committed);
+            });
             var values = rows.map(rowValues);
             var res = L.evaluateTable(values, criteria);
 
@@ -309,7 +345,7 @@
             }
 
             updateCounts(wrapper || table.parentElement, res.count);
-            summary.push({ table: table, count: res.count, hidden: tableHidden });
+            summary.push({ table: table, id: t.id, count: res.count, hidden: tableHidden });
         });
 
         // A wrapper holding several tables only disappears with the last one.
@@ -317,80 +353,85 @@
             setHidden(entry.el, entry.hidden.every(Boolean));
         });
 
-        syncActions(group);
+        syncActions(tables);
         document.dispatchEvent(new CustomEvent('immoadmin/filter/applied', {
-            detail: { group: group.name, criteria: L.activeCriteria(criteria), tables: summary }
+            detail: {
+                criteria: L.activeCriteria(filters.map(function (f) { return f.committed; })),
+                tables: summary
+            }
         }));
     }
 
-    function syncActions(group) {
-        var anyActive = L.activeCriteria(currentCriteria(group)).length > 0 || L.activeCriteria(group.applied).length > 0;
-        group.actions.forEach(function (a) {
-            each(a.querySelectorAll('[data-immoadmin-filter-action="submit"]'), function (b) {
-                b.classList.toggle('has-pending', group.pending);
+    function syncActions(tables) {
+        tables = tables || pageTables();
+        actions.forEach(function (a) {
+            var mine = coveredFilters(a, tables);
+            var pending = mine.some(function (f) { return f.pending; });
+            var anyActive = mine.some(function (f) { return L.isActive(f.impl.criterion()) || L.isActive(f.committed); });
+            each(a.el.querySelectorAll('[data-immoadmin-filter-action="submit"]'), function (b) {
+                b.classList.toggle('has-pending', pending);
             });
-            each(a.querySelectorAll('[data-immoadmin-filter-action="reset"]'), function (b) {
+            each(a.el.querySelectorAll('[data-immoadmin-filter-action="reset"]'), function (b) {
                 b.classList.toggle('immoadmin-no-active-filter', !anyActive);
             });
         });
     }
 
-    function changed(group) {
-        if (isDeferred(group)) {
-            group.pending = true;
-            syncActions(group);
+    function changed(f) {
+        var tables = pageTables();
+        if (isDeferred(f, tables)) {
+            f.pending = true;
+            syncActions(tables);
         } else {
-            apply(group);
+            commit(f);
+            render();
         }
     }
 
-    function reset(group) {
-        group.filters.forEach(function (f) { f.reset(); });
-        apply(group);
+    function runAction(a, kind) {
+        coveredFilters(a, pageTables()).forEach(function (f) {
+            if (kind === 'reset') f.impl.reset();
+            commit(f);
+        });
+        render();
     }
 
     // ------------------------------------------------------------ init
 
-    function bindActions(el, group) {
-        el.addEventListener('click', function (e) {
+    function bindActions(a) {
+        a.el.addEventListener('click', function (e) {
             var btn = e.target.closest('[data-immoadmin-filter-action]');
-            if (!btn || !el.contains(btn)) return;
+            if (!btn || !a.el.contains(btn)) return;
             e.preventDefault();
-            if (btn.getAttribute('data-immoadmin-filter-action') === 'reset') reset(group);
-            else apply(group);
+            runAction(a, btn.getAttribute('data-immoadmin-filter-action') === 'reset' ? 'reset' : 'submit');
         });
     }
 
     function init() {
-        var touched = {};
-        each(document.querySelectorAll('[data-immoadmin-filter][data-immoadmin-filter-group]'), function (el) {
-            var name = el.getAttribute('data-immoadmin-filter-group');
-            if (!name) return;
-            var group = getGroup(name);
-            touched[name] = true;
+        L = L || window.ImmoAdminFilterLogic;
+        if (!L) return; // filter-logic.js not there (yet) — the next trigger retries
+        each(document.querySelectorAll('[data-immoadmin-filter]'), function (el) {
             if (el._immoadminBound) return;
-            el._immoadminBound = true;
             var type = el.getAttribute('data-immoadmin-filter');
-            if (type === 'buttons') group.filters.push(new ButtonsFilter(el, group));
-            else if (type === 'range') group.filters.push(new RangeFilter(el, group));
-            else if (type === 'actions') { group.actions.push(el); bindActions(el, group); }
-        });
-        // Tables that joined a group without any filter still get counts.
-        each(document.querySelectorAll('[data-element="immoadmin-units-table"][data-immoadmin-filter-group]'), function (t) {
-            touched[t.getAttribute('data-immoadmin-filter-group')] = true;
-        });
-        Object.keys(touched).forEach(function (name) {
-            var group = getGroup(name);
-            // Drop filter elements Bricks removed (AJAX popups etc.).
-            group.filters = group.filters.filter(function (f) { return document.contains(f.el); });
-            group.actions = group.actions.filter(function (a) { return document.contains(a); });
-            if (group.initialized) {
-                apply(group, group.applied);
-            } else {
-                group.initialized = true;
-                apply(group);
+            if (type !== 'buttons' && type !== 'range' && type !== 'actions') return;
+            el._immoadminBound = true;
+            if (type === 'actions') {
+                var a = { el: el, spec: specOf(el) };
+                actions.push(a);
+                bindActions(a);
+                return;
             }
+            var f = { el: el, spec: specOf(el), pending: false, committed: null };
+            var onChange = function () { changed(f); };
+            f.impl = type === 'buttons' ? new ButtonsFilter(el, onChange) : new RangeFilter(el, onChange);
+            commit(f); // state on arrival (normally: nothing selected)
+            filters.push(f);
         });
+        // Drop elements Bricks removed (AJAX popups etc.).
+        filters = filters.filter(function (f) { return document.contains(f.el); });
+        actions = actions.filter(function (a) { return document.contains(a.el); });
+        // Re-apply the committed state — also to rows Bricks just swapped in.
+        render();
     }
 
     if (document.readyState === 'loading') {
@@ -398,6 +439,8 @@
     } else {
         init();
     }
+    // Safety net: scripts deferred / reordered by an optimisation plugin.
+    window.addEventListener('load', init);
     // Rows swapped by Bricks (native filter/pagination on a single table):
     // re-apply the current state to the new rows.
     ['bricks/ajax/query_result/displayed', 'bricks/ajax/pagination/completed', 'bricks/ajax/load_page/completed', 'bricks/ajax/popup/loaded']

@@ -499,16 +499,18 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         ];
 
         // ---------- Filter (v2.14.0) ----------
-        // Every control here is opt-in: no defaults, so a table without a
-        // Filter-Gruppe renders byte-identical to v2.13.0 (tested).
+        // Every control here is opt-in: no defaults, and nothing is emitted
+        // unless a filter acts on the table (Filter-Gruppe, or since v2.15.0
+        // a filter on the page targeting it / all tables), so a page without
+        // ImmoAdmin filters renders byte-identical to v2.13.0 (tested).
         $this->controls['immoadmin_filter_group'] = [
             'tab'            => 'content',
             'group'          => 'filter',
-            'label'          => esc_html__('Filter-Gruppe', 'immoadmin'),
+            'label'          => esc_html__('Filter-Gruppe (optional)', 'immoadmin'),
             'type'           => 'text',
-            'placeholder'    => 'wohnungen',
+            'placeholder'    => esc_html__('keine', 'immoadmin'),
             'hasDynamicData' => false,
-            'description'    => esc_html__('Gleicher Name wie bei den Elementen „ImmoAdmin Filter-Buttons / -Bereich / -Aktionen“. Alle Tabellen mit diesem Namen werden gemeinsam gefiltert. Leer = nicht gefiltert.', 'immoadmin'),
+            'description'    => esc_html__('Meist nicht nötig: Die ImmoAdmin-Filter wirken ohne weitere Einstellung auf alle Tabellen der Seite, oder auf die dort unter „Ziel-Tabellen“ gewählten. Eine Gruppe verbindet zusätzlich alle Filter und Tabellen mit demselben Namen.', 'immoadmin'),
         ];
 
         $this->controls['immoadmin_filter_empty'] = [
@@ -522,7 +524,6 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ],
             'inline'      => true,
             'placeholder' => esc_html__('Tabelle ausblenden', 'immoadmin'),
-            'required'    => ['immoadmin_filter_group', '!=', ''],
         ];
 
         $this->controls['immoadmin_filter_empty_text'] = [
@@ -532,10 +533,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'type'           => 'text',
             'placeholder'    => esc_html__('Keine passenden Wohnungen', 'immoadmin'),
             'hasDynamicData' => false,
-            'required'       => [
-                ['immoadmin_filter_group', '!=', ''],
-                ['immoadmin_filter_empty', '=', 'message'],
-            ],
+            'required'       => ['immoadmin_filter_empty', '=', 'message'],
         ];
 
         $this->controls['immoadmin_filter_hide_with'] = [
@@ -552,7 +550,6 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'inline'      => true,
             'placeholder' => esc_html__('Nur die Tabelle', 'immoadmin'),
             'description' => esc_html__('Damit die Überschrift („Presto … 10 Wohnungen“) mit verschwindet: Überschrift und Tabelle in einen gemeinsamen Block/Container legen und diesen hier wählen.', 'immoadmin'),
-            'required'    => ['immoadmin_filter_group', '!=', ''],
         ];
 
         $this->controls['immoadmin_filter_hide_selector'] = [
@@ -562,10 +559,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'type'           => 'text',
             'placeholder'    => '.haus-wrapper',
             'hasDynamicData' => false,
-            'required'       => [
-                ['immoadmin_filter_group', '!=', ''],
-                ['immoadmin_filter_hide_with', '=', 'custom'],
-            ],
+            'required'       => ['immoadmin_filter_hide_with', '=', 'custom'],
         ];
 
         $this->controls['immoadmin_filter_extra_keys'] = [
@@ -575,8 +569,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'type'           => 'text',
             'placeholder'    => 'z. B. balcony_area, object_type_label',
             'hasDynamicData' => false,
-            'description'    => esc_html__('Nur nötig für Filter mit „Eigenes Feld“, die UNTER dieser Tabelle stehen. Mit Komma trennen.', 'immoadmin'),
-            'required'       => ['immoadmin_filter_group', '!=', ''],
+            'description'    => esc_html__('Nur selten nötig: für Filter mit „Eigenes Feld“, die die Tabelle nicht automatisch findet (z. B. in Popups). Mit Komma trennen.', 'immoadmin'),
         ];
 
         $this->controls['immoadmin_filter_info'] = [
@@ -584,7 +577,6 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'group'    => 'filter',
             'type'     => 'info',
             'content'  => esc_html__('Anzahl anzeigen: einem Element im selben Wrapper (z. B. der Überschrift) das Attribut data-immoadmin-count geben, Wert z. B. „{count} Wohnungen“ (optional data-immoadmin-count-one=„1 Wohnung“). Es zeigt die Zahl der sichtbaren Wohnungen.', 'immoadmin'),
-            'required' => ['immoadmin_filter_group', '!=', ''],
         ];
 
         // ---------- Status colors ----------
@@ -1437,12 +1429,23 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // Surface the query element id to JS so it can refetch via Bricks filter system.
         $this->set_attribute('_root', 'data-bricks-query-id', $this->id);
 
-        // Filter widgets (v2.14.0). Nothing is emitted without a group, so
-        // tables that never joined one keep their exact markup.
-        $filter_group = self::filter_group_from_settings($settings);
-        $filter_keys  = [];
-        if ($filter_group !== '') {
-            $this->set_attribute('_root', 'data-immoadmin-filter-group', $filter_group);
+        // Filter widgets (v2.14.0 / v2.15.0). Nothing is emitted unless a
+        // filter acts on this table — via its Filter-Gruppe, or (v2.15.0) a
+        // filter on the page that picked it under "Ziel-Tabellen" or acts on
+        // all tables. A page without ImmoAdmin filters keeps its exact markup.
+        $filter_group  = self::filter_group_from_settings($settings);
+        $filter_keys   = [];
+        $participation = ['active' => false, 'keys' => []];
+        if (class_exists('ImmoAdmin_Filter_Data') && method_exists('ImmoAdmin_Filter_Data', 'table_participation')) {
+            $participation = ImmoAdmin_Filter_Data::table_participation(ImmoAdmin_Filter_Data::page_index(), $this->id, $filter_group);
+        }
+        $filter_active = $filter_group !== '' || $participation['active'];
+        if ($filter_active) {
+            if ($filter_group !== '') {
+                $this->set_attribute('_root', 'data-immoadmin-filter-group', $filter_group);
+            } else {
+                $this->set_attribute('_root', 'data-immoadmin-filterable', '1');
+            }
             if (($settings['immoadmin_filter_empty'] ?? '') === 'message') {
                 $this->set_attribute('_root', 'data-immoadmin-filter-empty', 'message');
                 $empty_text = isset($settings['immoadmin_filter_empty_text']) && is_string($settings['immoadmin_filter_empty_text'])
@@ -1462,7 +1465,8 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             }
             $filter_keys = array_values(array_unique(array_merge(
                 ImmoAdmin_Filter_Data::parse_key_list($settings['immoadmin_filter_extra_keys'] ?? ''),
-                ImmoAdmin_Filter_Data::registered_keys($filter_group)
+                $filter_group !== '' ? ImmoAdmin_Filter_Data::registered_keys($filter_group) : [],
+                $participation['keys']
             )));
         }
 
@@ -1552,6 +1556,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'url_state_value_dd'=> $url_state ? $url_state_value_dd : '',
             'is_builder'        => self::is_builder_context(),
             'filter_group'      => $filter_group,
+            'filter_active'     => $filter_active,
             'filter_keys'       => $filter_keys,
         ];
 
@@ -1662,12 +1667,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $is_restricted = !$is_builder
             && in_array($status, ['reserved', 'sold', 'rented'], true);
 
-        // Filter values (v2.14.0) — only for tables in a Filter-Gruppe.
+        // Filter values (v2.14.0) — only for tables a filter acts on.
         // Prices are dropped for every non-public status (allowlist, fails
         // closed — wider than $is_restricted on purpose): the attribute must
         // never be a side door to a redacted price.
         $filter_attr = '';
-        if (!empty($ctx['filter_group']) && class_exists('ImmoAdmin_Filter_Data')) {
+        if (!empty($ctx['filter_active']) && class_exists('ImmoAdmin_Filter_Data')) {
             $hide_sensitive = !$is_builder && !ImmoAdmin_Filter_Data::is_public_status($status);
             $filter_values  = ImmoAdmin_Filter_Data::values_for_post($post_id, $ctx['filter_keys'] ?? [], $hide_sensitive);
             $filter_attr    = ' ' . ImmoAdmin_Filter_Data::ROW_ATTR . '="' . esc_attr(wp_json_encode($filter_values)) . '"';

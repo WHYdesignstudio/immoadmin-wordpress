@@ -1,5 +1,6 @@
 /**
- * ImmoAdmin filter widgets — pure matching + formatting logic (v2.14.0).
+ * ImmoAdmin filter widgets — pure matching, targeting + formatting logic
+ * (v2.14.0, targeting v2.15.0).
  *
  * No DOM access: runs in the browser (window.ImmoAdminFilterLogic) and in
  * plain node for tests (module.exports). bricks/assets/js/filters.js wires it
@@ -202,6 +203,76 @@
         return Math.round(snapped * 1e6) / 1e6;
     }
 
+    // ------------------------------------------------------------- targeting
+    // Mirror of ImmoAdmin_Filter_Data::applies_to_table() & co. (v2.15.0) —
+    // tested against the same cases (tests/fixtures/targeting-cases.json).
+    //   spec  = { targets: ['abc123', …], group: 'wohnungen' | '' }
+    //   table = { id: 'abc123', group: 'wohnungen' | '' }
+    // A spec acts on (picked tables) ∪ (tables of its group); when that is
+    // empty by configuration — nothing picked, and no group or a group no
+    // table on the page carries — on ALL tables ("all mode").
+
+    function parseTargets(s) {
+        var src = Array.isArray(s) ? s : String(s == null ? '' : s).split(/[\s,]+/);
+        var out = [];
+        src.forEach(function (t) {
+            t = String(t == null ? '' : t).trim();
+            if (/^[A-Za-z0-9_-]{1,64}$/.test(t) && out.indexOf(t) === -1) out.push(t);
+        });
+        return out.slice(0, 50);
+    }
+
+    // Inside a component Bricks renders "<source id>-<instance id>".
+    function idMatches(tableId, target) {
+        tableId = String(tableId == null ? '' : tableId);
+        target = String(target == null ? '' : target);
+        if (!tableId || !target) return false;
+        return tableId === target || tableId.indexOf(target + '-') === 0;
+    }
+
+    function groupsPresent(tables) {
+        var out = {};
+        (tables || []).forEach(function (t) { if (t && t.group) out[t.group] = true; });
+        return out;
+    }
+
+    function isAllMode(spec, present) {
+        var targets = (spec && spec.targets) || [];
+        var group = (spec && spec.group) || '';
+        return targets.length === 0 && (group === '' || !(present || {})[group]);
+    }
+
+    function appliesTo(spec, table, present) {
+        var targets = (spec && spec.targets) || [];
+        for (var i = 0; i < targets.length; i++) {
+            if (idMatches(table && table.id, targets[i])) return true;
+        }
+        var group = (spec && spec.group) || '';
+        if (group !== '' && table && group === (table.group || '')) return true;
+        return isAllMode(spec, present);
+    }
+
+    /** Tables (of the given list) a spec acts on. */
+    function resolveTables(spec, tables) {
+        var present = groupsPresent(tables);
+        return (tables || []).filter(function (t) { return appliesTo(spec, t, present); });
+    }
+
+    /**
+     * Is an actions element (Suchen / Zurücksetzen) responsible for a filter?
+     * All mode → every filter on the page; otherwise when both act on at
+     * least one common table.
+     */
+    function actionCovers(actionSpec, filterSpec, tables) {
+        var present = groupsPresent(tables);
+        if (isAllMode(actionSpec, present)) return true;
+        var mine = resolveTables(actionSpec, tables);
+        for (var i = 0; i < mine.length; i++) {
+            if (appliesTo(filterSpec, mine[i], present)) return true;
+        }
+        return false;
+    }
+
     return {
         toNumber: toNumber,
         alternatives: alternatives,
@@ -211,6 +282,13 @@
         activeCriteria: activeCriteria,
         evaluateTable: evaluateTable,
         format: format,
-        snap: snap
+        snap: snap,
+        parseTargets: parseTargets,
+        idMatches: idMatches,
+        groupsPresent: groupsPresent,
+        isAllMode: isAllMode,
+        appliesTo: appliesTo,
+        resolveTables: resolveTables,
+        actionCovers: actionCovers
     };
 });

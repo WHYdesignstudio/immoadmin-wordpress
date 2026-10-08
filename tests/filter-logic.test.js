@@ -107,5 +107,43 @@ check('snap rounds up', L.snap(286000, 280000, 760000, 10000), 290000);
 check('clamped to max', L.snap(900000, 280000, 760000, 10000), 760000);
 check('fractional step', L.snap(70.26, 70, 80, 0.5), 70.5);
 
+section('targeting (v2.15.0, same cases as PHP)');
+var tcases = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'targeting-cases.json'), 'utf8'));
+tcases.forEach(function (c) {
+    check(c.name, L.resolveTables(c.spec, c.page).map(function (t) { return t.id; }), c.expected);
+});
+check('parseTargets: attribute string, unique, junk dropped', L.parseTargets(' t1  t2,t1 bad"id '), ['t1', 't2']);
+check('parseTargets: empty / null', [L.parseTargets(''), L.parseTargets(null)], [[], []]);
+check('idMatches: exact / instance / not a prefix of a longer id', [L.idMatches('abc123', 'abc123'), L.idMatches('abc123-x1', 'abc123'), L.idMatches('abc1234', 'abc123'), L.idMatches('', 'abc123')], [true, true, false, false]);
+check('isAllMode: orphaned group', L.isAllMode({ targets: [], group: 'wohnungen' }, {}), true);
+check('isAllMode: group present', L.isAllMode({ targets: [], group: 'wohnungen' }, { wohnungen: true }), false);
+check('isAllMode: targets set', L.isAllMode({ targets: ['t1'], group: '' }, {}), false);
+
+section('targeting: which filters does Suchen / Zurücksetzen coordinate?');
+var page = [{ id: 't1', group: '' }, { id: 't2', group: '' }, { id: 't3', group: 'wohnungen' }, { id: 't4', group: 'wohnungen' }];
+var all = { targets: [], group: '' };
+check('actions without config → every filter on the page', [
+    L.actionCovers(all, all, page), L.actionCovers(all, { targets: ['t1'], group: '' }, page), L.actionCovers(all, { targets: ['gone'], group: '' }, page)
+], [true, true, true]);
+check('actions on t1 → all-mode filter (it also acts on t1)', L.actionCovers({ targets: ['t1'], group: '' }, all, page), true);
+check('actions on t1 → filter on t1+t2', L.actionCovers({ targets: ['t1'], group: '' }, { targets: ['t1', 't2'], group: '' }, page), true);
+check('actions on t1 → filter on t2 only: not responsible', L.actionCovers({ targets: ['t1'], group: '' }, { targets: ['t2'], group: '' }, page), false);
+check('v2.14.0: actions + filter in the same group', L.actionCovers({ targets: [], group: 'wohnungen' }, { targets: [], group: 'wohnungen' }, page), true);
+check('v2.14.0: actions group vs. filter on other tables', L.actionCovers({ targets: [], group: 'wohnungen' }, { targets: ['t1'], group: '' }, page), false);
+check('v2.14.0: same orphaned group on a page without that group → both all mode', L.actionCovers({ targets: [], group: 'x' }, { targets: [], group: 'x' }, [{ id: 't1', group: '' }]), true);
+
+section('targeting: evaluating one table with the filters acting on it');
+// The controller collects, per table, the committed criteria of the filters
+// whose appliesTo() is true and evaluates them together (AND).
+var present = L.groupsPresent(page);
+var fHaus = { spec: all, crit: set('building_name', 'text', ['Presto']) };
+var fZimmer = { spec: { targets: ['t2'], group: '' }, crit: set('room_count', 'number', ['2']) };
+var critFor = function (table) {
+    return [fHaus, fZimmer].filter(function (f) { return L.appliesTo(f.spec, table, present); }).map(function (f) { return f.crit; });
+};
+check('t1: only the all-mode Haus filter', L.evaluateTable(rows, critFor(page[0])).visible, [true, true, false, false]);
+check('t2: Haus AND Zimmer', L.evaluateTable(rows, critFor(page[1])).visible, [false, true, false, false]);
+check('no filters on the page → nothing active, all rows visible', L.evaluateTable(rows, []), { visible: [true, true, true, true], count: 4, anyActive: false, hiddenByScope: false });
+
 console.log('\n' + count + ' checks, ' + fails + ' failed');
 process.exit(fails > 0 ? 1 : 0);

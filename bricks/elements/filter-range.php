@@ -45,7 +45,7 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
     public function set_controls() {
         $fields = ImmoAdmin_Filter_Data::range_fields();
 
-        $this->controls['filter_group'] = $this->group_control();
+        $this->controls = array_merge($this->controls, $this->targeting_controls());
 
         $this->controls['field'] = [
             'label'     => esc_html__('Feld', 'immoadmin'),
@@ -356,9 +356,6 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
     public function render() {
         $settings = $this->settings;
         $group = $this->prepare_root('range');
-        if ($group === false) {
-            return;
-        }
 
         $f = self::resolve_field($settings);
         if ($f['key'] === '') {
@@ -367,6 +364,7 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
         if ($f['field'] === '__custom') {
             ImmoAdmin_Filter_Data::register_custom_key($group, $f['key']);
         }
+        $this->announce($f['field'] === '__custom' ? $f['key'] : '');
 
         $rows   = ImmoAdmin_Filter_Data::rows($f['field'] === '__custom' ? [$f['key']] : []);
         $config = self::config_for($settings, $rows);

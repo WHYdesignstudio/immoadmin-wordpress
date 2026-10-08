@@ -354,8 +354,11 @@ class ImmoAdmin_Filter_Data {
         return array_keys(self::$registered_keys[$group] ?? array());
     }
 
+    /** Tests only: forget everything filters announced during this "request". */
     public static function reset_registered_keys() {
         self::$registered_keys = array();
+        self::$runtime_filters = array();
+        self::$page_index      = null;
     }
 
     // -----------------------------------------------------------------
@@ -727,5 +730,388 @@ class ImmoAdmin_Filter_Data {
         return (function_exists('bricks_is_builder') && bricks_is_builder())
             || (function_exists('bricks_is_builder_iframe') && bricks_is_builder_iframe())
             || (function_exists('bricks_is_builder_call') && bricks_is_builder_call());
+    }
+    // =================================================================
+    // Targeting (v2.15.0): which tables does a filter act on?
+    // =================================================================
+    //
+    // A filter (and a Filter-Aktionen element) acts on
+    //     (tables picked in "Ziel-Tabellen")  ∪  (tables with its Filter-Gruppe)
+    // and, when neither yields anything — nothing picked and no group, or a
+    // group no table on the page carries — on ALL ImmoAdmin tables of the
+    // page ("all mode"). The JS twin is filter-logic.js appliesTo(); both are
+    // tested against tests/fixtures/targeting-cases.json.
+
+    const TABLE_ELEMENT = 'immoadmin-units-table';
+
+    /** Element names of the filter widgets (actions included). */
+    public static function filter_element_names() {
+        return array('immoadmin-filter-buttons', 'immoadmin-filter-range', 'immoadmin-filter-actions');
+    }
+
+    /** Bricks element ids are short [a-z0-9]; allow a little more, never quotes/spaces. */
+    public static function sanitize_element_id($raw) {
+        if (!is_scalar($raw)) {
+            return '';
+        }
+        $id = trim((string) $raw);
+        return preg_match('/^[A-Za-z0-9_-]{1,64}$/', $id) ? $id : '';
+    }
+
+    /** Stored "Ziel-Tabellen" (Bricks multi-select = array; tolerate strings) → unique ids. */
+    public static function sanitize_targets($raw) {
+        if (is_string($raw)) {
+            $raw = preg_split('/[\s,]+/', $raw);
+        }
+        if (!is_array($raw)) {
+            return array();
+        }
+        $out = array();
+        foreach ($raw as $v) {
+            $id = self::sanitize_element_id($v);
+            if ($id !== '' && !in_array($id, $out, true)) {
+                $out[] = $id;
+            }
+        }
+        return array_slice($out, 0, 50);
+    }
+
+    /**
+     * Table id as rendered vs. picked target. Inside a component Bricks
+     * renders the source id with the instance id appended ("abc123-x9y8z7"),
+     * so picking the table in the component targets every instance of it.
+     */
+    public static function id_matches($table_id, $target) {
+        $table_id = (string) $table_id;
+        $target   = (string) $target;
+        if ($table_id === '' || $target === '') {
+            return false;
+        }
+        return $table_id === $target || strpos($table_id, $target . '-') === 0;
+    }
+
+    /** Nothing picked and no group a table on the page carries → all tables. */
+    public static function is_all_mode(array $targets, $group, array $groups_present) {
+        $group = (string) $group;
+        return empty($targets) && ($group === '' || empty($groups_present[$group]));
+    }
+
+    /**
+     * Does a filter/actions spec act on this table?
+     *
+     * @param array  $targets        sanitized target ids
+     * @param string $group          sanitized Filter-Gruppe of the filter ('' = none)
+     * @param string $table_id       rendered element id of the table
+     * @param string $table_group    sanitized Filter-Gruppe of the table ('' = none)
+     * @param array  $groups_present [group => true] of all tables on the page
+     */
+    public static function applies_to_table(array $targets, $group, $table_id, $table_group, array $groups_present) {
+        foreach ($targets as $t) {
+            if (self::id_matches($table_id, $t)) {
+                return true;
+            }
+        }
+        if ((string) $group !== '' && (string) $group === (string) $table_group) {
+            return true;
+        }
+        return self::is_all_mode($targets, $group, $groups_present);
+    }
+
+    /**
+     * Readable option label for a table in the "Ziel-Tabellen" dropdown:
+     * Bricks custom label (or "Units Table") · selected Gebäude · #id.
+     * The JS twin (builder-targets.js) builds the same string.
+     */
+    public static function table_label(array $element, $suffix = '') {
+        $label = isset($element['label']) && is_string($element['label']) ? trim(wp_strip_all_tags($element['label'])) : '';
+        if ($label === '') {
+            $label = 'Units Table';
+        }
+        $settings  = isset($element['settings']) && is_array($element['settings']) ? $element['settings'] : array();
+        $buildings = array();
+        foreach ((array) ($settings['immoadmin_buildings'] ?? array()) as $b) {
+            if (is_scalar($b) && trim((string) $b) !== '') {
+                $buildings[] = trim(wp_strip_all_tags((string) $b));
+            }
+        }
+        if (!empty($buildings)) {
+            $label .= ' · ' . implode(', ', $buildings);
+        }
+        $label .= ' #' . (isset($element['id']) ? (string) $element['id'] : '');
+        if ($suffix !== '') {
+            $label .= ' (' . $suffix . ')';
+        }
+        return $label;
+    }
+
+    /**
+     * Custom meta key a filter element needs on the rows ('' = standard
+     * field). Same resolution as the elements' resolve_field().
+     */
+    public static function custom_key_from_settings($name, array $settings) {
+        if ($name === 'immoadmin-filter-actions' || ($settings['field'] ?? '') !== '__custom') {
+            return '';
+        }
+        $key = self::sanitize_meta_key($settings['field_custom'] ?? '');
+        return in_array($key, self::standard_keys(), true) ? '' : $key;
+    }
+
+    /**
+     * Walk Bricks element lists and collect ImmoAdmin tables and filters.
+     * Follows "Template" elements and components through $resolve:
+     *   $resolve('template', $template_id) → element list
+     *   $resolve('component', $cid)        → element list of the component
+     * Pure apart from $resolve — tested with a fake resolver.
+     *
+     * @param array    $lists   list of element lists (header, content, footer …)
+     * @param callable $resolve
+     * @return array ['tables' => [id => [id, group, label, external]], 'filters' => [id => [id, name, targets, group, key]]]
+     */
+    public static function index_elements(array $lists, $resolve = null) {
+        $index = array('tables' => array(), 'filters' => array());
+        $seen  = array();
+        $walk  = function ($elements, $depth, $suffix) use (&$walk, &$index, &$seen, $resolve) {
+            if (!is_array($elements) || $depth > 4) {
+                return;
+            }
+            foreach ($elements as $el) {
+                if (!is_array($el) || empty($el['name']) || !is_string($el['name'])) {
+                    continue;
+                }
+                $name     = $el['name'];
+                $id       = self::sanitize_element_id($el['id'] ?? '');
+                $settings = isset($el['settings']) && is_array($el['settings']) ? $el['settings'] : array();
+
+                if ($name === self::TABLE_ELEMENT && $id !== '' && !isset($index['tables'][$id])) {
+                    $index['tables'][$id] = array(
+                        'id'    => $id,
+                        'group' => self::sanitize_group($settings['immoadmin_filter_group'] ?? ''),
+                        'label' => self::table_label($el, $suffix),
+                        'external' => $suffix !== '',
+                    );
+                } elseif (in_array($name, self::filter_element_names(), true) && $id !== '' && !isset($index['filters'][$id])) {
+                    $index['filters'][$id] = array(
+                        'id'      => $id,
+                        'name'    => $name,
+                        'targets' => self::sanitize_targets($settings['filter_targets'] ?? array()),
+                        'group'   => self::sanitize_group($settings['filter_group'] ?? ''),
+                        'key'     => self::custom_key_from_settings($name, $settings),
+                    );
+                }
+
+                if (!is_callable($resolve)) {
+                    continue;
+                }
+                if ($name === 'template' && !empty($settings['template']) && is_numeric($settings['template'])) {
+                    $tid = 'template:' . (int) $settings['template'];
+                    if (!isset($seen[$tid])) {
+                        $seen[$tid] = true;
+                        $walk(call_user_func($resolve, 'template', (int) $settings['template']), $depth + 1, 'Template');
+                    }
+                }
+                if (!empty($el['cid']) && is_scalar($el['cid'])) {
+                    $cid = 'component:' . $el['cid'];
+                    if (!isset($seen[$cid])) {
+                        $seen[$cid] = true;
+                        $walk(call_user_func($resolve, 'component', (string) $el['cid']), $depth + 1, 'Komponente');
+                    }
+                }
+            }
+        };
+        foreach ($lists as $list) {
+            $walk($list, 0, '');
+        }
+        return $index;
+    }
+
+    /** [group => true] of the indexed tables. */
+    public static function groups_present(array $tables) {
+        $out = array();
+        foreach ($tables as $t) {
+            if (($t['group'] ?? '') !== '') {
+                $out[$t['group']] = true;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Does any filter (buttons / range — actions do not filter) act on this
+     * table, and which custom keys do those filters need?
+     *
+     * @return array ['active' => bool, 'keys' => string[]]
+     */
+    public static function table_participation(array $index, $table_id, $table_group) {
+        $present = self::groups_present($index['tables'] ?? array());
+        $active  = false;
+        $keys    = array();
+        foreach ($index['filters'] ?? array() as $f) {
+            if (($f['name'] ?? '') === 'immoadmin-filter-actions') {
+                continue;
+            }
+            if (self::applies_to_table($f['targets'] ?? array(), $f['group'] ?? '', $table_id, $table_group, $present)) {
+                $active = true;
+                if (($f['key'] ?? '') !== '' && !in_array($f['key'], $keys, true)) {
+                    $keys[] = $f['key'];
+                }
+            }
+        }
+        return array('active' => $active, 'keys' => $keys);
+    }
+
+    // ---------------------------------------------------------- page index
+
+    private static $page_index = null;
+    private static $runtime_filters = array();
+
+    /** Filters announce themselves while rendering (covers what the scan cannot see). */
+    public static function register_filter($id, $name, array $targets, $group, $key = '') {
+        $id = self::sanitize_element_id($id);
+        if ($id === '') {
+            return;
+        }
+        self::$runtime_filters[$id] = array(
+            'id' => $id, 'name' => (string) $name, 'targets' => self::sanitize_targets($targets),
+            'group' => self::sanitize_group($group), 'key' => self::sanitize_meta_key($key),
+        );
+    }
+
+    /** Tests only. */
+    public static function set_page_index_for_tests($index) {
+        self::$page_index      = $index;
+        self::$runtime_filters = array();
+    }
+
+    /**
+     * Index of the page being rendered: the scan of its Bricks data (once
+     * per request) plus filters rendered so far. Empty outside Bricks.
+     */
+    public static function page_index() {
+        if (self::$page_index === null) {
+            self::$page_index = self::scan_current_page();
+        }
+        $index = self::$page_index;
+        foreach (self::$runtime_filters as $id => $f) {
+            if (!isset($index['filters'][$id])) {
+                $index['filters'][$id] = $f;
+            }
+        }
+        return $index;
+    }
+
+    /** Resolver for index_elements(): Bricks templates + components. */
+    public static function bricks_resolver($type, $id) {
+        if ($type === 'template' && defined('BRICKS_DB_PAGE_CONTENT') && function_exists('get_post_meta')) {
+            $data = get_post_meta((int) $id, BRICKS_DB_PAGE_CONTENT, true);
+            return is_array($data) ? $data : array();
+        }
+        if ($type === 'component' && class_exists('\\Bricks\\Helpers') && method_exists('\\Bricks\\Helpers', 'get_component_by_cid')) {
+            $component = \Bricks\Helpers::get_component_by_cid($id);
+            return is_array($component) && isset($component['elements']) && is_array($component['elements']) ? $component['elements'] : array();
+        }
+        return array();
+    }
+
+    /**
+     * Element lists of a post as Bricks renders it: header / content /
+     * footer (active templates included) and active popup templates.
+     *
+     * @param int|null $post_id null = the current frontend request
+     */
+    public static function bricks_element_lists($post_id = null) {
+        $lists = array();
+        if (!class_exists('\\Bricks\\Database')) {
+            return $lists;
+        }
+        try {
+            if ($post_id === null) {
+                foreach (array('header', 'content', 'footer') as $area) {
+                    $data = \Bricks\Database::get_template_data($area);
+                    if (is_array($data)) {
+                        $lists[] = $data;
+                    }
+                }
+            } else {
+                foreach (array('header', 'content', 'footer') as $area) {
+                    $data = \Bricks\Database::get_data((int) $post_id, $area);
+                    if (is_array($data)) {
+                        $lists[] = $data;
+                    }
+                }
+                foreach (array('header', 'footer') as $area) {
+                    $tid = \Bricks\Database::$active_templates[$area] ?? 0;
+                    if ($tid && (int) $tid !== (int) $post_id && defined('BRICKS_DB_PAGE_' . strtoupper($area))) {
+                        $data = get_post_meta((int) $tid, constant('BRICKS_DB_PAGE_' . strtoupper($area)), true);
+                        if (is_array($data)) {
+                            $lists[] = $data;
+                        }
+                    }
+                }
+            }
+            $popups = \Bricks\Database::$active_templates['popup'] ?? array();
+            if (is_array($popups) && defined('BRICKS_DB_PAGE_CONTENT')) {
+                foreach (array_slice($popups, 0, 20) as $pid) {
+                    $data = get_post_meta((int) $pid, BRICKS_DB_PAGE_CONTENT, true);
+                    if (is_array($data)) {
+                        $lists[] = $data;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Never let the scan break a page render: worst case the table
+            // stays unfiltered, exactly as before v2.15.0.
+            return $lists;
+        }
+        return $lists;
+    }
+
+    private static function scan_current_page() {
+        $empty = array('tables' => array(), 'filters' => array());
+        if (self::is_builder()) {
+            return $empty; // filters never act inside the builder
+        }
+        try {
+            return self::index_elements(self::bricks_element_lists(null), array(__CLASS__, 'bricks_resolver'));
+        } catch (\Throwable $e) {
+            return $empty;
+        }
+    }
+
+    /**
+     * Options of the "Ziel-Tabellen" control: [id => label] of the tables on
+     * the post being edited (incl. templates / components it uses). Builder
+     * only — the frontend never needs them. builder-targets.js refreshes
+     * them live from the unsaved builder state.
+     *
+     * @return array ['options' => [id => label], 'external' => [id, …]]  external = found via template/component
+     */
+    public static function builder_target_options() {
+        $out = array('options' => array(), 'external' => array());
+        if (!function_exists('bricks_is_builder_main') || !bricks_is_builder_main() || !function_exists('get_the_ID')) {
+            return $out;
+        }
+        try {
+            $post_id = (int) get_the_ID();
+            if ($post_id <= 0) {
+                return $out;
+            }
+            $index = self::index_elements(self::bricks_element_lists($post_id), array(__CLASS__, 'bricks_resolver'));
+        } catch (\Throwable $e) {
+            return $out;
+        }
+        return self::target_options_from_index($index);
+    }
+
+    /** Pure part of builder_target_options(). */
+    public static function target_options_from_index(array $index) {
+        $out = array('options' => array(), 'external' => array());
+        foreach ($index['tables'] ?? array() as $id => $t) {
+            // Escaped like Bricks' own query-list labels (options render as HTML).
+            $out['options'][$id] = esc_html($t['label']);
+            if (!empty($t['external'])) {
+                $out['external'][] = (string) $id;
+            }
+        }
+        return $out;
     }
 }
