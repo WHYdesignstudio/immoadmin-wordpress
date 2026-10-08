@@ -1,5 +1,5 @@
 /*
- * ImmoAdmin filter widgets (v2.14.0)
+ * ImmoAdmin filter widgets (v2.14.0, moving value labels v2.15.1)
  *
  * Minimal, neutral base. Everything visual sits in @layer bricks behind
  * :where() (zero specificity), so every Bricks control and every theme rule
@@ -195,6 +195,45 @@
     :where(.brxe-immoadmin-filter-range) .value-wrap > span {
         display: inline-flex;
         gap: 0.3em;
+    }
+
+    /* Wert-Position "Unter den Griffen (mitlaufend)" (v2.15.1).
+     * All labels share ONE grid cell: the row is as tall as the tallest
+     * label, so the moving labels reserve their space and never overlap the
+     * content below (+ "Abstand zum Slider" = margin-top above). filters.js
+     * measures and sets --iaf-x (left edge in px, clamped into the element,
+     * see filter-logic.js valueLabelLayout()) and data-placed. Before that —
+     * no JS yet, or the element is still hidden — the labels sit at the
+     * ends, which is exactly where the handles start. */
+    :where(.brxe-immoadmin-filter-range) .value-wrap[data-value-position="follow"] {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        justify-content: normal;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .value-wrap[data-value-position="follow"] > span {
+        grid-area: 1 / 1;
+        justify-self: start;
+        white-space: nowrap;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .value-wrap[data-value-position="follow"] > .upper {
+        justify-self: end;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .value-wrap[data-value-position="follow"] > .merged,
+    :where(.brxe-immoadmin-filter-range) .value-wrap[data-value-position="follow"][data-merged] > .lower,
+    :where(.brxe-immoadmin-filter-range) .value-wrap[data-value-position="follow"][data-merged] > .upper {
+        visibility: hidden;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .value-wrap[data-value-position="follow"][data-merged] > .merged {
+        visibility: visible;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .value-wrap[data-value-position="follow"][data-placed] > span {
+        justify-self: start;
+        transform: translateX(var(--iaf-x, 0px));
     }
 
     /* ---------------------------------------------------------------- */

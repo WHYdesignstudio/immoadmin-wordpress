@@ -1,0 +1,8 @@
+[
+    { "args": ["", "70 m²", "", "80 m²"], "expected": [{ "cls": "value", "text": "70 m²" }, { "cls": "sep", "text": "–" }, { "cls": "value", "text": "80 m²" }] },
+    { "args": ["von", "70 m²", "bis", "80 m²"], "expected": [{ "cls": "label", "text": "von" }, { "cls": "value", "text": "70 m²" }, { "cls": "label", "text": "bis" }, { "cls": "value", "text": "80 m²" }] },
+    { "args": ["von", "280k", "", "300k"], "expected": [{ "cls": "label", "text": "von" }, { "cls": "value", "text": "280k" }, { "cls": "sep", "text": "–" }, { "cls": "value", "text": "300k" }] },
+    { "args": ["", "ca. 70,5 qm", "max.", "ca. 71 qm"], "expected": [{ "cls": "value", "text": "ca. 70,5 qm" }, { "cls": "label", "text": "max." }, { "cls": "value", "text": "ca. 71 qm" }] },
+    { "args": ["von", "70 m²", "bis", "70 m²"], "expected": [{ "cls": "value", "text": "70 m²" }] },
+    { "args": ["  von ", "1 Mio.", " ", "1,2 Mio."], "expected": [{ "cls": "label", "text": "von" }, { "cls": "value", "text": "1 Mio." }, { "cls": "sep", "text": "–" }, { "cls": "value", "text": "1,2 Mio." }] }
+]

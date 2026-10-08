@@ -119,6 +119,42 @@ check('isAllMode: orphaned group', L.isAllMode({ targets: [], group: 'wohnungen'
 check('isAllMode: group present', L.isAllMode({ targets: [], group: 'wohnungen' }, { wohnungen: true }), false);
 check('isAllMode: targets set', L.isAllMode({ targets: ['t1'], group: '' }, {}), false);
 
+section('value labels (v2.15.1): positioned under the handles');
+// 400px track, 18px thumb: centre = f × 382 + 9  (same formula as filters.css)
+var base = { track: 400, offset: 0, container: 400, thumb: 18, lower: 50, upper: 60, merged: 120, gap: 16 };
+var lay = function (o) { var m = {}; Object.keys(base).forEach(function (k) { m[k] = base[k]; }); Object.keys(o).forEach(function (k) { m[k] = o[k]; }); return L.valueLabelLayout(m); };
+var near = function (a, b) { return Math.abs(a - b) < 1e-6; };
+var mid = lay({ lo: 0.25, hi: 0.75 });
+check('centres follow the thumb formula', [near(mid.lowerCentre, 0.25 * 382 + 9), near(mid.upperCentre, 0.75 * 382 + 9)], [true, true]);
+check('labels centred under their handle (translateX(-50%))', [near(mid.lower, 0.25 * 382 + 9 - 25), near(mid.upper, 0.75 * 382 + 9 - 30), mid.merged], [true, true, false]);
+var ends = lay({ lo: 0, hi: 1 });
+check('at 0 / 100 %: flush with the edges, never off-canvas', [ends.lower, ends.upper, ends.merged], [0, 340, false]);
+var nearEdge = lay({ lo: 0.03, hi: 0.97 });
+check('near the edges: still clamped inside', [nearEdge.lower >= 0, nearEdge.upper + 60 <= 400], [true, true]);
+check('clamp: lower at 3 % = 0 (centre 20.46 − 25 < 0)', nearEdge.lower, 0);
+var close = lay({ lo: 0.4, hi: 0.5 });
+check('handles close → merged', close.merged, true);
+check('merged label centred between the handles', near(close.mergedX + 60, (close.lowerCentre + close.upperCentre) / 2), true);
+check('same value → merged', lay({ lo: 0.5, hi: 0.5 }).merged, true);
+check('merged at the right end clamps too', lay({ lo: 1, hi: 1 }).mergedX, 280);
+check('merged at the left end clamps too', lay({ lo: 0, hi: 0.02 }).mergedX, 0);
+// The switch point: labels separate exactly when lower + gap fits before upper.
+var sep = function (hi) { return lay({ lo: 0.3, hi: hi }).merged; };
+var x0 = 0.3 * 382 + 9 + 25 + 16 + 30; // lower right edge + gap + half of upper = upper centre at the switch
+check('just enough room → separate', sep((x0 + 0.5 - 9) / 382), false);
+check('a pixel short → merged', sep((x0 - 0.5 - 9) / 382), true);
+check('gap 0: touching labels stay separate', lay({ lo: 0.3, hi: (0.3 * 382 + 9 + 25 + 30 - 9) / 382, gap: 0 }).merged, false);
+check('hidden element (width 0) → null, nothing placed', [L.valueLabelLayout({ track: 0, container: 0, lo: 0, hi: 1 }), L.valueLabelLayout({})], [null, null]);
+check('offset shifts centres (slider-wrap not flush with value-wrap)', near(lay({ lo: 0.5, hi: 1, offset: 10, container: 420 }).lowerCentre, 10 + 191 + 9), true);
+check('label wider than the element → starts at 0', lay({ lo: 0.5, hi: 1, lower: 500 }).lower, 0);
+check('swapped / out-of-range input is normalised', [lay({ lo: 1.5, hi: -1 }).lower, lay({ lo: 1.5, hi: -1 }).upper], [0, 340]);
+check('thumb larger than track is clamped', lay({ lo: 0, hi: 1, thumb: 999 }).lowerCentre, 200);
+
+section('value labels (v2.15.1): merged label content (shared with PHP)');
+JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'merged-parts-cases.json'), 'utf8')).forEach(function (c) {
+    check('merged ' + JSON.stringify(c.args), L.mergedValueParts.apply(null, c.args), c.expected);
+});
+
 section('targeting: which filters does Suchen / Zurücksetzen coordinate?');
 var page = [{ id: 't1', group: '' }, { id: 't2', group: '' }, { id: 't3', group: 'wohnungen' }, { id: 't4', group: 'wohnungen' }];
 var all = { targets: [], group: '' };

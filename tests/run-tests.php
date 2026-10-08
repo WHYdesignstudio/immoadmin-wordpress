@@ -848,6 +848,62 @@ $rah = $render($ra);
 check('area labels "70 m²" … "154 m²"', strpos($rah, '>70 m²<') !== false && strpos($rah, '>154 m²<') !== false, true);
 check('no label → aria-label on group', strpos($rah, 'role="group" aria-label="Wohnfläche"') !== false, true);
 
+section('element: Filter-Bereich — saved elements without "Wert-Position" are byte-identical to v2.15.0');
+require_once __DIR__ . '/fixtures/filter-range-cases.php';
+$range_baseline_file = __DIR__ . '/fixtures/filter-range-baseline.json';
+$range_rendered = array();
+foreach (immoadmin_test_range_cases() as $case => $case_settings) {
+    $range_rendered[$case] = $render(new ImmoAdmin_Filter_Range(array('id' => 'frb' . count($range_rendered), 'settings' => $case_settings)));
+}
+if (in_array('--write-range-baseline', $argv ?? array(), true)) {
+    file_put_contents($range_baseline_file, json_encode($range_rendered, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n");
+    echo "  wrote range baseline ({$range_baseline_file})\n";
+}
+$range_baseline = json_decode((string) @file_get_contents($range_baseline_file), true);
+check('range baseline file present', is_array($range_baseline) && count($range_baseline) === count($range_rendered), true);
+foreach ($range_rendered as $case => $html) {
+    check("{$case}: identical", $html, $range_baseline[$case] ?? null);
+}
+check('sanity: baseline has fixed value-wrap', strpos($range_baseline['area-default'] ?? '', '<div class="value-wrap" aria-hidden="true">') !== false, true);
+foreach (immoadmin_test_range_cases() as $case => $case_settings) {
+    $fixed_html = $render(new ImmoAdmin_Filter_Range(array('id' => 'frx', 'settings' => $case_settings + array('value_position' => 'fixed'))));
+    $legacy_html = $render(new ImmoAdmin_Filter_Range(array('id' => 'frx', 'settings' => $case_settings)));
+    check("{$case}: explicit 'fixed' = absent (legacy)", $fixed_html, $legacy_html);
+}
+
+section('element: Filter-Bereich — Wert-Position (v2.15.1)');
+$rp = new ImmoAdmin_Filter_Range(array('id' => 'frp', 'settings' => array()));
+$rp->set_control_groups(); $rp->set_controls();
+$vp = $rp->controls['value_position'];
+check('control: select in "Werte-Anzeige" with both modes (German labels)', array($vp['type'], $vp['group'], $vp['label'], $vp['options']), array('select', 'values', 'Wert-Position',
+    array('follow' => 'Unter den Griffen (mitlaufend)', 'fixed' => 'Links/Rechts fest')));
+check('control: default "follow" (Bricks copies it into NEW elements on add)', $vp['default'], 'follow');
+check('control: placeholder shows the legacy state of saved elements, not clearable', array($vp['placeholder'], $vp['clearable']), array('Links/Rechts fest', false));
+check('control: first in "Werte-Anzeige", before the typography', array_slice(array_keys(array_filter($rp->controls, function ($c) { return ($c['group'] ?? '') === 'values'; })), 0, 2), array('value_position', 'valueTypography'));
+check('spacing control unchanged (margin-top on .value-wrap, both modes)', $rp->controls['valueSpacing']['css'], array(array('property' => 'margin-top', 'selector' => '.value-wrap')));
+check('value typography still targets .value-wrap .value (moving labels too)', $rp->controls['valueTypography']['css'][0]['selector'], '.value-wrap .value');
+check('resolver: absent / empty / junk / fixed → fixed', array(
+    ImmoAdmin_Filter_Range::value_position(array()), ImmoAdmin_Filter_Range::value_position(array('value_position' => '')),
+    ImmoAdmin_Filter_Range::value_position(array('value_position' => 'evil')), ImmoAdmin_Filter_Range::value_position(array('value_position' => 'fixed')),
+    ImmoAdmin_Filter_Range::value_position(null)), array('fixed', 'fixed', 'fixed', 'fixed', 'fixed'));
+check('resolver: follow', ImmoAdmin_Filter_Range::value_position(array('value_position' => 'follow')), 'follow');
+// A new element = settings as Bricks stores them on add: every control default.
+$new_settings = array();
+foreach ($rp->controls as $k => $c) {
+    if (!empty($c['default'])) { $new_settings[$k] = $c['default']; }
+}
+check('new element (defaults copied on add) → follow', ImmoAdmin_Filter_Range::value_position($new_settings), 'follow');
+$fh = $render(new ImmoAdmin_Filter_Range(array('id' => 'frf', 'settings' => array('field' => 'living_area', 'value_position' => 'follow'))));
+check('follow: marked value-wrap, still aria-hidden', strpos($fh, '<div class="value-wrap" data-value-position="follow" aria-hidden="true"><span class="lower"><span class="value">70 m²</span></span><span class="upper"><span class="value">154 m²</span></span><span class="merged"><span class="value">70 m²</span><span class="value sep">–</span><span class="value">154 m²</span></span></div>') !== false, true);
+check('follow: inputs + aria unchanged', strpos($fh, 'aria-label="Wohnfläche Minimum" aria-valuetext="70 m²"') !== false && strpos($fh, 'aria-label="Wohnfläche Maximum" aria-valuetext="154 m²"') !== false, true);
+$fh_legacy = $render(new ImmoAdmin_Filter_Range(array('id' => 'frf', 'settings' => array('field' => 'living_area'))));
+check('follow differs from legacy ONLY in the value-wrap', preg_replace('/<div class="value-wrap".*$/s', '', $fh), preg_replace('/<div class="value-wrap".*$/s', '', $fh_legacy));
+$fvb = $render(new ImmoAdmin_Filter_Range(array('id' => 'frv', 'settings' => array('field' => 'living_area', 'value_position' => 'follow', 'labelMin' => 'von', 'labelMax' => 'bis <b>'))));
+check('follow: von/bis kept + escaped, merged uses "bis" as connector', strpos($fvb, '<span class="lower"><span class="label">von</span><span class="value">70 m²</span></span><span class="upper"><span class="label">bis &lt;b&gt;</span><span class="value">154 m²</span></span><span class="merged"><span class="label">von</span><span class="value">70 m²</span><span class="label">bis &lt;b&gt;</span><span class="value">154 m²</span></span>') !== false, true);
+foreach (json_decode(file_get_contents(__DIR__ . '/fixtures/merged-parts-cases.json'), true) as $c) {
+    check('merged ' . json_encode($c['args'], JSON_UNESCAPED_UNICODE), call_user_func_array(array('ImmoAdmin_Filter_Range', 'merged_parts'), $c['args']), $c['expected']);
+}
+
 section('element: Filter-Aktionen');
 $a = new ImmoAdmin_Filter_Actions(array('id' => 'fa1', 'settings' => array('filter_group' => 'wohnungen', 'submit_text' => 'Suchen',
     'submitIcon' => array('library' => 'themify', 'icon' => 'ti-arrow-right'), 'reset_text' => 'Filter zurücksetzen', 'submitStyle' => 'primary', 'resetStyle' => 'primary', 'resetOutline' => true)));

@@ -1,5 +1,6 @@
 /**
- * ImmoAdmin filter widgets — page controller (v2.14.0, targeting v2.15.0).
+ * ImmoAdmin filter widgets — page controller (v2.14.0, targeting v2.15.0,
+ * moving value labels v2.15.1).
  *
  *   filters  [data-immoadmin-filter="buttons" | "range"]
  *   actions  [data-immoadmin-filter="actions"]  (Suchen / Zurücksetzen)
@@ -99,6 +100,23 @@
         this.upperText = el.querySelector('.value-wrap .upper .value');
         if (!this.minInput || !this.maxInput) return;
 
+        // Wert-Position "mitlaufend" (v2.15.1). Fixed mode: nothing below
+        // runs, the element behaves exactly as before.
+        var vw = el.querySelector('.value-wrap[data-value-position="follow"]');
+        if (vw && this.wrap) {
+            this.follow = {
+                wrap: vw,
+                lower: vw.querySelector(':scope > .lower'),
+                upper: vw.querySelector(':scope > .upper'),
+                merged: vw.querySelector(':scope > .merged'),
+                labelMin: textOf(vw.querySelector(':scope > .lower > .label')),
+                labelMax: textOf(vw.querySelector(':scope > .upper > .label')),
+                mergedKey: null,
+                frame: 0
+            };
+            this.observeLayout();
+        }
+
         var onInput = function (e) {
             self.clamp(e.target === self.minInput ? 'min' : 'max');
             self.paint();
@@ -108,6 +126,91 @@
         this.maxInput.addEventListener('input', onInput);
         this.paint();
     }
+
+    function textOf(node) { return node ? node.textContent : ''; }
+
+    // Re-place the labels whenever their geometry can change without an
+    // input event: element resized, shown after being hidden (collapsed
+    // container, tab, popup — width goes 0 → n), web font swapped in
+    // (label widths change).
+    RangeFilter.prototype.observeLayout = function () {
+        var self = this;
+        var f = this.follow;
+        var schedule = function () { self.schedulePlace(); };
+        if (typeof ResizeObserver === 'function') {
+            f.observer = new ResizeObserver(schedule);
+            [f.wrap, this.wrap, f.lower, f.upper, f.merged].forEach(function (n) { if (n) f.observer.observe(n); });
+        } else {
+            window.addEventListener('resize', schedule);
+            f.onWindowResize = schedule;
+        }
+        if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+            document.fonts.ready.then(schedule, function () {});
+        }
+    };
+    RangeFilter.prototype.schedulePlace = function () {
+        var self = this;
+        var f = this.follow;
+        if (!f || f.frame) return;
+        var raf = window.requestAnimationFrame || function (cb) { return setTimeout(cb, 16); };
+        f.frame = raf(function () { f.frame = 0; self.placeLabels(); });
+    };
+    RangeFilter.prototype.destroy = function () {
+        var f = this.follow;
+        if (!f) return;
+        if (f.observer) f.observer.disconnect();
+        if (f.onWindowResize) window.removeEventListener('resize', f.onWindowResize);
+        this.follow = null;
+    };
+    // Merged label content ("70 – 80 m²"), rebuilt only when it changes.
+    RangeFilter.prototype.updateMerged = function (lo, hi) {
+        var f = this.follow;
+        if (!f.merged) return;
+        var parts = L.mergedValueParts(f.labelMin, lo, f.labelMax, hi);
+        var key = JSON.stringify(parts);
+        if (key === f.mergedKey) return;
+        f.mergedKey = key;
+        while (f.merged.firstChild) f.merged.removeChild(f.merged.firstChild);
+        parts.forEach(function (p) {
+            var s = document.createElement('span');
+            s.className = p.cls === 'sep' ? 'value sep' : p.cls; // same classes as the server render
+            s.textContent = p.text;
+            f.merged.appendChild(s);
+        });
+    };
+    // Measure → filter-logic.js valueLabelLayout() → write. Writes only a
+    // transform and two attributes, so it never feeds back into the
+    // ResizeObserver (sizes of the observed boxes do not change).
+    RangeFilter.prototype.placeLabels = function () {
+        var f = this.follow;
+        if (!f || !f.lower || !f.upper) return;
+        var b = this.bounds();
+        var v = this.values();
+        var span = b.max - b.min || 1;
+        var wrapRect = f.wrap.getBoundingClientRect();
+        var trackRect = this.wrap.getBoundingClientRect();
+        var gap = parseFloat(getComputedStyle(f.wrap).columnGap);
+        var layout = L.valueLabelLayout({
+            track: trackRect.width,
+            offset: trackRect.left - wrapRect.left,
+            container: wrapRect.width,
+            thumb: trackRect.height, // .slider-wrap is var(--iaf-thumb-size) tall
+            lo: (v.lo - b.min) / span,
+            hi: (v.hi - b.min) / span,
+            lower: f.lower.getBoundingClientRect().width,
+            upper: f.upper.getBoundingClientRect().width,
+            merged: f.merged ? f.merged.getBoundingClientRect().width : 0,
+            gap: isFinite(gap) ? gap : 0
+        });
+        if (!layout) return; // hidden (width 0): the ResizeObserver calls again once visible
+        var merged = layout.merged && !!f.merged;
+        f.lower.style.setProperty('--iaf-x', layout.lower + 'px');
+        f.upper.style.setProperty('--iaf-x', layout.upper + 'px');
+        if (f.merged) f.merged.style.setProperty('--iaf-x', layout.mergedX + 'px');
+        if (merged) f.wrap.setAttribute('data-merged', '');
+        else f.wrap.removeAttribute('data-merged');
+        f.wrap.setAttribute('data-placed', '');
+    };
     RangeFilter.prototype.bounds = function () {
         return { min: Number(this.config.min), max: Number(this.config.max), step: Number(this.config.step) || 1 };
     };
@@ -144,6 +247,10 @@
         if (this.upperText) this.upperText.textContent = hi;
         this.minInput.setAttribute('aria-valuetext', lo);
         this.maxInput.setAttribute('aria-valuetext', hi);
+        if (this.follow) {
+            this.updateMerged(lo, hi);
+            this.placeLabels(); // synchronous: the labels move in the same frame as the handle
+        }
     };
     RangeFilter.prototype.criterion = function () {
         if (!this.minInput) return null;
@@ -427,8 +534,12 @@
             commit(f); // state on arrival (normally: nothing selected)
             filters.push(f);
         });
-        // Drop elements Bricks removed (AJAX popups etc.).
-        filters = filters.filter(function (f) { return document.contains(f.el); });
+        // Drop elements Bricks removed (AJAX popups, builder re-render etc.).
+        filters = filters.filter(function (f) {
+            if (document.contains(f.el)) return true;
+            if (f.impl && f.impl.destroy) f.impl.destroy();
+            return false;
+        });
         actions = actions.filter(function (a) { return document.contains(a.el); });
         // Re-apply the committed state — also to rows Bricks just swapped in.
         render();

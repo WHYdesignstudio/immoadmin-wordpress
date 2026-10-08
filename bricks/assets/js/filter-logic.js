@@ -1,6 +1,6 @@
 /**
  * ImmoAdmin filter widgets — pure matching, targeting + formatting logic
- * (v2.14.0, targeting v2.15.0).
+ * (v2.14.0, targeting v2.15.0, value labels v2.15.1).
  *
  * No DOM access: runs in the browser (window.ImmoAdminFilterLogic) and in
  * plain node for tests (module.exports). bricks/assets/js/filters.js wires it
@@ -203,6 +203,96 @@
         return Math.round(snapped * 1e6) / 1e6;
     }
 
+    // ------------------------------------------------- value labels (v2.15.1)
+    // "Wert-Position: Unter den Griffen (mitlaufend)". filters.js measures,
+    // these two decide — pure, tested in node.
+
+    function finite(n, fallback) {
+        n = Number(n);
+        return isFinite(n) ? n : fallback;
+    }
+
+    function clampNumber(n, lo, hi) {
+        return Math.min(hi, Math.max(lo, n));
+    }
+
+    /**
+     * Where the moving value labels go. All lengths in px.
+     *
+     *   track      width of .slider-wrap (the range inputs)
+     *   offset     left of .slider-wrap relative to .value-wrap (normally 0)
+     *   container  width of .value-wrap — labels never leave it
+     *   thumb      handle size (--iaf-thumb-size)
+     *   lo, hi     handle positions 0…1 (--iaf-lo / --iaf-hi)
+     *   lower, upper, merged   label widths
+     *   gap        minimum space between the two labels
+     *
+     * Each label is centred under its handle with the SAME formula as the
+     * handle and the active track in filters.css —
+     * centre = f × (track − thumb) + thumb / 2 — then clamped into
+     * [0, container − width], so at the ends a label sits flush with the
+     * edge instead of hanging off-canvas. If the clamped labels would come
+     * closer than `gap`, both are replaced by ONE merged label ("70 – 80 m²")
+     * centred between the handles (also clamped).
+     *
+     * @return {null|{merged:boolean, lower:number, upper:number, mergedX:number,
+     *                lowerCentre:number, upperCentre:number}}
+     *         x = left edge of each label relative to .value-wrap;
+     *         null when not measurable (element hidden: width 0).
+     */
+    function valueLabelLayout(m) {
+        m = m || {};
+        var track = finite(m.track, 0);
+        var container = finite(m.container, 0);
+        if (track <= 0 || container <= 0) return null;
+        var offset = finite(m.offset, 0);
+        var thumb = clampNumber(finite(m.thumb, 0), 0, track);
+        var lo = clampNumber(finite(m.lo, 0), 0, 1);
+        var hi = clampNumber(finite(m.hi, 1), 0, 1);
+        if (hi < lo) { var t = lo; lo = hi; hi = t; }
+        var wl = Math.max(0, finite(m.lower, 0));
+        var wu = Math.max(0, finite(m.upper, 0));
+        var wm = Math.max(0, finite(m.merged, 0));
+        var gap = Math.max(0, finite(m.gap, 0));
+
+        var centre = function (f) { return offset + f * (track - thumb) + thumb / 2; };
+        var place = function (c, w) { return clampNumber(c - w / 2, 0, Math.max(0, container - w)); };
+
+        var cl = centre(lo), cu = centre(hi);
+        var xl = place(cl, wl), xu = place(cu, wu);
+        var merged = xl + wl + gap > xu + 1e-6;
+        return {
+            merged: merged,
+            lower: xl,
+            upper: xu,
+            mergedX: place((cl + cu) / 2, wm),
+            lowerCentre: cl,
+            upperCentre: cu
+        };
+    }
+
+    /**
+     * Content of the merged label, as parts { cls: 'label'|'value'|'sep', text }.
+     *   same value             → "70 m²" (just the value)
+     *   with "Text vor Max"    → "von 70 m² bis 80 m²" (the max text connects)
+     *   otherwise              → "70 m² – 80 m²" (or "von 70 m² – 80 m²")
+     * Mirrored by ImmoAdmin_Filter_Range::merged_parts() for the first render.
+     */
+    function mergedValueParts(labelMin, lowText, labelMax, highText) {
+        labelMin = labelMin == null ? '' : String(labelMin).trim();
+        labelMax = labelMax == null ? '' : String(labelMax).trim();
+        lowText = lowText == null ? '' : String(lowText);
+        highText = highText == null ? '' : String(highText);
+        if (lowText === highText) return [{ cls: 'value', text: lowText }];
+        var parts = [];
+        if (labelMin !== '') parts.push({ cls: 'label', text: labelMin });
+        parts.push({ cls: 'value', text: lowText });
+        if (labelMax !== '') parts.push({ cls: 'label', text: labelMax });
+        else parts.push({ cls: 'sep', text: '–' });
+        parts.push({ cls: 'value', text: highText });
+        return parts;
+    }
+
     // ------------------------------------------------------------- targeting
     // Mirror of ImmoAdmin_Filter_Data::applies_to_table() & co. (v2.15.0) —
     // tested against the same cases (tests/fixtures/targeting-cases.json).
@@ -283,6 +373,8 @@
         evaluateTable: evaluateTable,
         format: format,
         snap: snap,
+        valueLabelLayout: valueLabelLayout,
+        mergedValueParts: mergedValueParts,
         parseTargets: parseTargets,
         idMatches: idMatches,
         groupsPresent: groupsPresent,

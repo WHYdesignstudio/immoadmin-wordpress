@@ -1,6 +1,6 @@
 <?php
 /**
- * Bricks Element: ImmoAdmin Filter-Bereich (v2.14.0)
+ * Bricks Element: ImmoAdmin Filter-Bereich (v2.14.0, Wert-Position v2.15.1)
  *
  * Dual-handle range slider (Wohnfläche, Preis, …) acting on every
  * units-table with the same "Filter-Gruppe". Markup mirrors Bricks' native
@@ -12,6 +12,11 @@
  * Prices: bounds only come from units whose price is public, and reserved /
  * sold units (price redacted) count as "no value" — by default they stay
  * visible ("Einheiten ohne Wert trotzdem anzeigen").
+ *
+ * Wert-Position (v2.15.1): "follow" puts each value label under its handle
+ * and moves it along (filters.js + filter-logic.js valueLabelLayout());
+ * "fixed" is the original left/right row. See value_position() for why
+ * saved elements keep "fixed" although new ones start with "follow".
  *
  * @package ImmoAdmin\Bricks
  */
@@ -254,6 +259,31 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
         ];
 
         // ---------- Werte-Anzeige ----------
+        // 'default' => 'follow' reaches NEWLY added elements only. Verified
+        // against Bricks 2.3.9 (builder main.min.js): control defaults are
+        // copied into an element's settings when it is ADDED — on drag
+        // (`for (a in controls) if (controls[a].hasOwnProperty("default"))
+        // settings[a] = controls[a].default`) and on click-add/command palette
+        // (same, for settings not yet set). The page then stores
+        // value_position = 'follow'. On the frontend Bricks\Element takes the
+        // stored settings as they are — no merge with control defaults — so a
+        // saved element without the key renders exactly as before ("fixed",
+        // see value_position()). The placeholder shows that legacy state in
+        // the panel. Same mechanism as filter_group (v2.14.0 → v2.15.0).
+        $this->controls['value_position'] = [
+            'group'       => 'values',
+            'label'       => esc_html__('Wert-Position', 'immoadmin'),
+            'type'        => 'select',
+            'options'     => [
+                'follow' => esc_html__('Unter den Griffen (mitlaufend)', 'immoadmin'),
+                'fixed'  => esc_html__('Links/Rechts fest', 'immoadmin'),
+            ],
+            'inline'      => true,
+            'default'     => 'follow',
+            'clearable'   => false,
+            'placeholder' => esc_html__('Links/Rechts fest', 'immoadmin'),
+            'description' => esc_html__('Mitlaufend: jeder Wert steht zentriert unter seinem Griff und wandert beim Ziehen mit; kommen sich die Werte zu nahe, werden sie zu einem Wert („70 – 80 m²“) zusammengefasst.', 'immoadmin'),
+        ];
         $this->controls['valueTypography'] = [
             'group' => 'values',
             'label' => esc_html__('Typografie (Werte)', 'immoadmin'),
@@ -273,6 +303,7 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
             'units'       => true,
             'placeholder' => '0.5em',
             'css'         => [['property' => 'margin-top', 'selector' => '.value-wrap']],
+            'description' => esc_html__('Vertikaler Abstand zwischen Balken und Werten (in beiden Wert-Positionen).', 'immoadmin'),
         ];
         $this->controls['valueGap'] = [
             'group'       => 'values',
@@ -348,6 +379,40 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
         ];
     }
 
+    /**
+     * 'follow' | 'fixed'. Only an explicitly stored 'follow' moves the
+     * labels: an absent key is an element saved before v2.15.1 and keeps its
+     * left/right row (new elements get 'follow' stored on add — see the
+     * value_position control).
+     */
+    public static function value_position($settings) {
+        return (is_array($settings) && ($settings['value_position'] ?? '') === 'follow') ? 'follow' : 'fixed';
+    }
+
+    /**
+     * Merged label content (handles too close together). Mirror of
+     * mergedValueParts() in filter-logic.js — same cases tested in both.
+     *
+     * @return array<int, array{cls:string, text:string}>
+     */
+    public static function merged_parts($label_min, $low_text, $label_max, $high_text) {
+        $label_min = trim((string) $label_min);
+        $label_max = trim((string) $label_max);
+        $low_text  = (string) $low_text;
+        $high_text = (string) $high_text;
+        if ($low_text === $high_text) {
+            return [['cls' => 'value', 'text' => $low_text]];
+        }
+        $parts = [];
+        if ($label_min !== '') {
+            $parts[] = ['cls' => 'label', 'text' => $label_min];
+        }
+        $parts[] = ['cls' => 'value', 'text' => $low_text];
+        $parts[] = $label_max !== '' ? ['cls' => 'label', 'text' => $label_max] : ['cls' => 'sep', 'text' => '–'];
+        $parts[] = ['cls' => 'value', 'text' => $high_text];
+        return $parts;
+    }
+
     private static function num_attr($n) {
         $n = (float) $n;
         return floor($n) == $n ? (string) (int) $n : rtrim(rtrim(sprintf('%.6F', $n), '0'), '.');
@@ -405,11 +470,22 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
             . ' aria-label="' . esc_attr($name . ' ' . __('Maximum', 'immoadmin')) . '"'
             . ' aria-valuetext="' . esc_attr($max_text) . '">';
         echo '</div>';
-        echo '<div class="value-wrap" aria-hidden="true">';
+        $follow = self::value_position($settings) === 'follow';
+        // Fixed: byte-identical to v2.15.0 (tests/fixtures/filter-range-baseline.json).
+        echo '<div class="value-wrap"' . ($follow ? ' data-value-position="follow"' : '') . ' aria-hidden="true">';
         echo '<span class="lower">' . ($label_min !== '' ? '<span class="label">' . esc_html($label_min) . '</span>' : '')
             . '<span class="value">' . esc_html($min_text) . '</span></span>';
         echo '<span class="upper">' . ($label_max !== '' ? '<span class="label">' . esc_html($label_max) . '</span>' : '')
             . '<span class="value">' . esc_html($max_text) . '</span></span>';
+        if ($follow) {
+            // Shown by filters.js instead of lower + upper when they would overlap.
+            echo '<span class="merged">';
+            foreach (self::merged_parts($label_min, $min_text, $label_max, $max_text) as $part) {
+                // The dash takes the value typography too ("70 – 80 m²").
+                echo '<span class="' . esc_attr($part['cls'] === 'sep' ? 'value sep' : $part['cls']) . '">' . esc_html($part['text']) . '</span>';
+            }
+            echo '</span>';
+        }
         echo '</div>';
         echo '</div>';
         echo '</div>';
