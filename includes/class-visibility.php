@@ -269,6 +269,12 @@ class ImmoAdmin_Visibility {
     /**
      * Ist der Meta-Key ein Preis- oder Dokumentfeld?
      */
+    public static function is_sensitive_meta_key($key) {
+        // v2.14.0: öffentlicher Zugang zur gleichen Regel (Filter-Werte der
+        // Wohnungstabelle) — kein Lesepfad darf großzügiger sein als REST.
+        return self::is_sensitive_key((string) $key);
+    }
+
     private static function is_sensitive_key($key) {
         if (in_array($key, self::$never_redact, true)) {
             return false;

@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.13.0
+ * Version: 2.14.0
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.13.0');
+define('IMMOADMIN_VERSION', '2.14.0');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -260,11 +260,36 @@ add_action('init', function () {
         return;
     }
 
+    // Filter helpers first: the units-table reads its "Filter-Gruppe" through
+    // them (class_exists()-guarded there, so a partial update degrades to
+    // "no filtering" instead of a fatal).
+    $immoadmin_fd = IMMOADMIN_PLUGIN_DIR . 'bricks/filter-data.php';
+    if (file_exists($immoadmin_fd)) {
+        require_once $immoadmin_fd;
+    }
+
     \Bricks\Elements::register_element(
         IMMOADMIN_PLUGIN_DIR . 'bricks/elements/units-table.php',
         'immoadmin-units-table',
         'ImmoAdmin_Units_Table'
     );
+
+    // Filter widgets (v2.14.0): act on every units-table with the same
+    // "Filter-Gruppe". register_element() skips unreadable files itself; the
+    // class_exists() check keeps a partial update from registering elements
+    // whose helper class is missing.
+    if (class_exists('ImmoAdmin_Filter_Data')) {
+        foreach (array(
+            'filter-buttons' => 'ImmoAdmin_Filter_Buttons',
+            'filter-range'   => 'ImmoAdmin_Filter_Range',
+            'filter-actions' => 'ImmoAdmin_Filter_Actions',
+        ) as $immoadmin_file => $immoadmin_class) {
+            $immoadmin_path = IMMOADMIN_PLUGIN_DIR . 'bricks/elements/' . $immoadmin_file . '.php';
+            if (file_exists($immoadmin_path) && file_exists(IMMOADMIN_PLUGIN_DIR . 'bricks/elements/filter-base.php')) {
+                \Bricks\Elements::register_element($immoadmin_path, 'immoadmin-' . $immoadmin_file, $immoadmin_class);
+            }
+        }
+    }
 
     // Query types "ImmoAdmin Grundrisse / Bilder / Dokumente" + the
     // {immoadmin_media_*} tags used inside them. Registered here (init 11)

@@ -1,0 +1,236 @@
+/*
+ * ImmoAdmin filter widgets (v2.14.0)
+ *
+ * Minimal, neutral base. Everything visual sits in @layer bricks behind
+ * :where() (zero specificity), so every Bricks control and every theme rule
+ * wins without !important. Only the functional "hidden" rule below is
+ * unlayered — hiding filtered rows must not be overridable by accident.
+ */
+
+/* Filtered out: rows, tables and their heading wrappers. Must beat the
+ * table's own display:contents / display:block rules. */
+[data-immoadmin-filter-hidden] {
+    display: none !important;
+}
+
+@layer bricks {
+
+    /* ---------------------------------------------------------------- */
+    /* Filter-Buttons                                                    */
+    /* ---------------------------------------------------------------- */
+    :where(.brxe-immoadmin-filter-buttons) {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 1em;
+    }
+
+    :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5em;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-item {
+        margin: 0;
+        padding: 0;
+    }
+
+    :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-option {
+        appearance: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        padding: 0.4em 1.1em;
+        font: inherit;
+        line-height: 1.2;
+        color: inherit;
+        background-color: transparent;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+
+    :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-option.brx-option-active {
+        background-color: var(--bricks-color-primary, #1f2937);
+        border-color: var(--bricks-color-primary, #1f2937);
+        color: #fff;
+    }
+
+    :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-option:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 2px;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* Filter-Bereich (range)                                            */
+    /* ---------------------------------------------------------------- */
+    :where(.brxe-immoadmin-filter-range) {
+        --iaf-bar-height: 4px;
+        --iaf-bar-radius: 999px;
+        --iaf-bar-color: rgba(0, 0, 0, 0.15);
+        --iaf-bar-active-color: currentColor;
+        --iaf-thumb-size: 18px;
+        --iaf-thumb-bg: #fff;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5em;
+        width: 100%;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .double-slider-wrap {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        isolation: isolate;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .slider-wrap {
+        position: relative;
+        height: var(--iaf-thumb-size);
+    }
+
+    :where(.brxe-immoadmin-filter-range) .slider-base,
+    :where(.brxe-immoadmin-filter-range) .slider-track {
+        position: absolute;
+        top: 50%;
+        height: var(--iaf-bar-height);
+        border-radius: var(--iaf-bar-radius);
+        transform: translateY(-50%);
+        pointer-events: none;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .slider-base {
+        left: 0;
+        width: 100%;
+        background-color: var(--iaf-bar-color);
+    }
+
+    /* --iaf-lo / --iaf-hi (0…1) are set by filters.js. The thumb centre
+     * travels from thumb/2 to 100% − thumb/2, so the track does too. */
+    :where(.brxe-immoadmin-filter-range) .slider-track {
+        left: calc(var(--iaf-lo, 0) * (100% - var(--iaf-thumb-size)) + var(--iaf-thumb-size) / 2);
+        width: calc((var(--iaf-hi, 1) - var(--iaf-lo, 0)) * (100% - var(--iaf-thumb-size)));
+        background-color: var(--iaf-bar-active-color);
+    }
+
+    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"] {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        background: none;
+        border: 0;
+        outline: none;
+        appearance: none;
+        -webkit-appearance: none;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"].is-top {
+        z-index: 2;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]::-webkit-slider-runnable-track {
+        height: 100%;
+        background: none;
+        border: 0;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]::-moz-range-track {
+        height: 100%;
+        background: none;
+        border: 0;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        box-sizing: border-box;
+        width: var(--iaf-thumb-size);
+        height: var(--iaf-thumb-size);
+        border-radius: 50%;
+        background-color: var(--iaf-thumb-bg);
+        border: 2px solid var(--iaf-bar-active-color);
+        cursor: pointer;
+        pointer-events: auto;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]::-moz-range-thumb {
+        box-sizing: border-box;
+        width: var(--iaf-thumb-size);
+        height: var(--iaf-thumb-size);
+        border-radius: 50%;
+        background-color: var(--iaf-thumb-bg);
+        border: 2px solid var(--iaf-bar-active-color);
+        cursor: pointer;
+        pointer-events: auto;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]:focus-visible::-webkit-slider-thumb {
+        outline: 2px solid var(--iaf-bar-active-color);
+        outline-offset: 2px;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]:focus-visible::-moz-range-thumb {
+        outline: 2px solid var(--iaf-bar-active-color);
+        outline-offset: 2px;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .value-wrap {
+        display: flex;
+        justify-content: space-between;
+        gap: 1em;
+        margin-top: 0.5em;
+    }
+
+    :where(.brxe-immoadmin-filter-range) .value-wrap > span {
+        display: inline-flex;
+        gap: 0.3em;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* Filter-Aktionen                                                   */
+    /* ---------------------------------------------------------------- */
+    :where(.brxe-immoadmin-filter-actions) {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 1em;
+    }
+
+    :where(.brxe-immoadmin-filter-actions) .immoadmin-filter-submit,
+    :where(.brxe-immoadmin-filter-actions) .immoadmin-filter-reset {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5em;
+        cursor: pointer;
+    }
+
+    :where(.brxe-immoadmin-filter-actions) .immoadmin-filter-reset.immoadmin-no-active-filter[data-hide-inactive] {
+        display: none;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* Units table: empty-result message injected by filters.js          */
+    /* ---------------------------------------------------------------- */
+    :where(.brxe-immoadmin-units-table) .immoadmin-filter-empty .immoadmin-table-cell {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 24px 16px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-option {
+            transition: none;
+        }
+    }
+}

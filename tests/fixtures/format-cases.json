@@ -1,0 +1,21 @@
+[
+    { "value": 280000, "fmt": { "mode": "k" }, "expected": "280k" },
+    { "value": 760000, "fmt": { "mode": "k" }, "expected": "760k" },
+    { "value": 285500, "fmt": { "mode": "k" }, "expected": "285,5k" },
+    { "value": 285549, "fmt": { "mode": "k" }, "expected": "285,5k" },
+    { "value": 999, "fmt": { "mode": "k" }, "expected": "999" },
+    { "value": 1250000, "fmt": { "mode": "k" }, "expected": "1,25 Mio." },
+    { "value": 1000000, "fmt": { "mode": "k", "suffix": " €" }, "expected": "1 Mio. €" },
+    { "value": 2500, "fmt": { "mode": "k", "prefix": "€ " }, "expected": "€ 2,5k" },
+    { "value": 70, "fmt": { "mode": "thousands", "suffix": " m²" }, "expected": "70 m²" },
+    { "value": 154, "fmt": { "mode": "thousands", "suffix": " m²" }, "expected": "154 m²" },
+    { "value": 79.9, "fmt": { "mode": "thousands", "decimals": 1, "suffix": " m²" }, "expected": "79,9 m²" },
+    { "value": 439800, "fmt": { "mode": "thousands" }, "expected": "439.800" },
+    { "value": 1234567.891, "fmt": { "mode": "thousands", "decimals": 2 }, "expected": "1.234.567,89" },
+    { "value": 1234567, "fmt": { "mode": "plain" }, "expected": "1234567" },
+    { "value": 1234.5, "fmt": { "mode": "plain", "decimals": 1 }, "expected": "1234,5" },
+    { "value": "439800", "fmt": {}, "expected": "439.800" },
+    { "value": 0, "fmt": { "mode": "k" }, "expected": "0" },
+    { "value": "abc", "fmt": { "mode": "k" }, "expected": "" },
+    { "value": null, "fmt": {}, "expected": "" }
+]

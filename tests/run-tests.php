@@ -118,12 +118,29 @@ function bricks_render_dynamic_data($s) {
     }, (string) $s);
 }
 
+// --- extra stubs for the filter widgets (v2.14.0)
+define('ARRAY_A', 'ARRAY_A');
+define('IMMOADMIN_PLUGIN_URL', 'https://wp.test/wp-content/plugins/immoadmin/');
+$GLOBALS['__enqueued']   = array();
+$GLOBALS['__is_builder'] = false;
+function wp_json_encode($d, $o = 0) { return json_encode($d, $o); }
+function wp_strip_all_tags($s) { return trim(strip_tags((string) $s)); }
+function get_transient($k) { return false; }
+function set_transient($k, $v, $t = 0) { return true; }
+function wp_enqueue_style($h) { $GLOBALS['__enqueued'][] = 'style:' . $h; }
+function wp_enqueue_script($h) { $GLOBALS['__enqueued'][] = 'script:' . $h; }
+function bricks_is_builder() { return !empty($GLOBALS['__is_builder']); }
+
 require __DIR__ . '/../includes/class-unit-fields.php';
 require __DIR__ . '/../includes/class-post-type.php';
 require __DIR__ . '/../includes/class-sync.php';
 require __DIR__ . '/../includes/class-visibility.php';
 require __DIR__ . '/stubs/bricks.php';
+require __DIR__ . '/../bricks/filter-data.php';
 require __DIR__ . '/../bricks/elements/units-table.php';
+require __DIR__ . '/../bricks/elements/filter-buttons.php';
+require __DIR__ . '/../bricks/elements/filter-range.php';
+require __DIR__ . '/../bricks/elements/filter-actions.php';
 require __DIR__ . '/../bricks/query-types.php';
 
 // ---------------------------------------------------------------- harness
@@ -573,6 +590,344 @@ check('legacy icon column without panel: icon still rendered (unchanged)', strpo
 check('legacy icon column: no toggle class', strpos($cell->invoke(null, $legacy_icon, 10, false, true), 'immoadmin-accordion-toggle') === false, true);
 check('empty garden → fallback dash', strpos($cell->invoke(null, $cols[4], 4, false, true), '>—<') !== false, true);
 $GLOBALS['__current_post'] = 0;
+
+// ---------------------------------------------------------------- byte-identical baseline
+section('units-table: output without Filter-Gruppe is byte-identical to v2.13.0');
+require_once __DIR__ . '/fixtures/units-table-cases.php';
+$baseline_file = __DIR__ . '/fixtures/units-table-baseline.json';
+$rendered = array();
+foreach (immoadmin_test_table_cases() as $case => $case_settings) {
+    $rendered[$case] = immoadmin_test_render_table($case_settings);
+}
+if (in_array('--write-baseline', $argv ?? array(), true)) {
+    file_put_contents($baseline_file, json_encode($rendered, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n");
+    echo "  wrote baseline ({$baseline_file})\n";
+}
+$baseline = json_decode((string) @file_get_contents($baseline_file), true);
+check('baseline file present', is_array($baseline) && count($baseline) === count($rendered), true);
+foreach ($rendered as $case => $html) {
+    check("{$case}: identical", $html, $baseline[$case] ?? null);
+}
+check('sanity: baseline renders rows', strpos($baseline['accordion-preset'] ?? '', 'data-unit-id="701"') !== false, true);
+check('sanity: reserved price never in baseline', strpos(implode('', $baseline), '500.000') === false && strpos(implode('', $baseline), '500000') === false, true);
+
+// ================================================================ v2.14.0
+// Filter widgets: data helpers, elements, units-table integration
+
+$FD = 'ImmoAdmin_Filter_Data';
+
+section('filter data: groups, keys, floors');
+check('group lower-cased + trimmed', $FD::sanitize_group(' Wohnungen '), 'wohnungen');
+check('group: spaces/umlauts → dashes', $FD::sanitize_group('Haus Süd'), 'haus-s-d');
+check('group: non-scalar → ""', $FD::sanitize_group(array('x')), '');
+check('group: empty', $FD::sanitize_group(''), '');
+check('meta key valid', $FD::sanitize_meta_key(' Balcony_Area '), 'balcony_area');
+check('meta key invalid → ""', $FD::sanitize_meta_key('a b'), '');
+check('key list', $FD::parse_key_list('balcony_area, object_type_label;bad key,balcony_area'), array('balcony_area', 'object_type_label', 'bad', 'key'));
+check('to_floor "0" = EG (not empty)', $FD::to_floor('0'), 0);
+check('to_floor "" = null', $FD::to_floor(''), null);
+check('to_floor "-10"', $FD::to_floor('-10'), -10);
+check('floor labels', array_map(array($FD, 'floor_label'), array(-10, -1, 0, 2, 96, 98, 99, 12, -4)),
+    array('GG', '1. UG', 'EG', '2. OG', 'OG', '2. DG', 'DG', '12. OG', '4. UG'));
+$fl = array(99, 0, -10, -1, 2);
+usort($fl, function ($a, $b) use ($FD) { return $FD::floor_sort_key($a) <=> $FD::floor_sort_key($b); });
+check('floor order UG < GG < EG < OG < DG', $fl, array(-1, -10, 0, 2, 99));
+check('to_number 0 = empty for sync fields', $FD::to_number('0'), null);
+check('to_number 0 kept when asked', $FD::to_number('0', false), 0);
+check('to_number "79.9"', $FD::to_number('79.9'), 79.9);
+check('to_number "3" → int', $FD::to_number('3'), 3);
+check('to_number junk', $FD::to_number('abc'), null);
+
+section('filter data: orientation parsing');
+check('key "south"', $FD::parse_orientation('south'), array('south'));
+check('German "Süd/West"', $FD::parse_orientation('Süd/West'), array('south', 'west'));
+check('"Südwest" compound', $FD::parse_orientation('Südwest'), array('south', 'west'));
+check('"SW"', $FD::parse_orientation('SW'), array('south', 'west'));
+check('"Nord-Ost"', $FD::parse_orientation('Nord-Ost'), array('east', 'north'));
+check('"south,west"', $FD::parse_orientation('south,west'), array('south', 'west'));
+check('"Ost und West"', $FD::parse_orientation('Ost und West'), array('east', 'west'));
+check('"Südausrichtung" (feature label)', $FD::parse_orientation('Südausrichtung'), array('south'));
+check('features JSON adds directions', $FD::parse_orientation('south', '["balcony","west","south"]'), array('south', 'west'));
+check('features only', $FD::parse_orientation('', '["east"]'), array('east'));
+check('nothing', $FD::parse_orientation('', ''), array());
+check('garbage features', $FD::parse_orientation(null, '{bad'), array());
+check('labels', array_map(array($FD, 'orientation_label'), array('east', 'south', 'west', 'north')), array('Ost', 'Süd', 'West', 'Nord'));
+
+section('filter data: sensitivity (same list as REST redaction)');
+foreach (array('purchase_price', 'rent_cold', 'rent_warm', 'price_per_sqm', 'purchase_price_investor', 'document_1_url') as $k) {
+    check("{$k} sensitive", $FD::is_sensitive_key($k), true);
+}
+foreach (array('building_name', 'floor', 'floor_to', 'orientation', 'room_count', 'living_area', 'usable_area', 'features', 'balcony_area') as $k) {
+    check("{$k} not sensitive", $FD::is_sensitive_key($k), false);
+}
+check('public statuses', array($FD::is_public_status('available'), $FD::is_public_status(''), $FD::is_public_status('reserved'), $FD::is_public_status('sold'), $FD::is_public_status('foo')),
+    array(true, true, false, false, false));
+
+section('filter data: row values');
+$meta_a = array('building_name' => ' Presto ', 'floor' => '-10', 'floor_to' => '0', 'orientation' => 'south', 'features' => '["west"]',
+    'room_count' => '3', 'living_area' => '79.9', 'usable_area' => '0', 'purchase_price' => '439800', 'rent_cold' => '', 'price_per_sqm' => '5504',
+    'balcony_area' => '0', 'object_type_label' => 'Wohnung', 'parking_price' => '25000');
+$va = $FD::values_from_meta($meta_a, array('balcony_area', 'object_type_label', 'parking_price'));
+check('row values (public unit)', $va, array(
+    'building_name' => 'Presto', 'floor' => -10, 'floor_to' => 0, 'orientation' => array('south', 'west'),
+    'room_count' => 3, 'living_area' => 79.9, 'usable_area' => null, 'purchase_price' => 439800, 'rent_cold' => null, 'rent_warm' => null,
+    'price_per_sqm' => 5504, 'balcony_area' => 0, 'object_type_label' => 'Wohnung', 'parking_price' => 25000,
+));
+$vr = $FD::values_from_meta($meta_a, array('balcony_area', 'parking_price'), true);
+check('restricted: every price null', array($vr['purchase_price'], $vr['price_per_sqm'], $vr['parking_price']), array(null, null, null));
+check('restricted: non-price values kept', array($vr['building_name'], $vr['living_area'], $vr['room_count'], $vr['balcony_area']), array('Presto', 79.9, 3, 0));
+check('restricted JSON contains no price digits', strpos(json_encode($vr), '439800') === false && strpos(json_encode($vr), '25000') === false, true);
+check('standard keys first, stable order', array_slice(array_keys($va), 0, 11), $FD::standard_keys());
+check('array meta values (get_post_meta all) accepted', $FD::values_from_meta(array('building_name' => array('Largo')))['building_name'], 'Largo');
+
+section('filter data: registered custom keys');
+$FD::reset_registered_keys();
+$FD::register_custom_key('Wohnungen', 'balcony_area');
+$FD::register_custom_key('wohnungen', 'living_area'); // standard → ignored
+$FD::register_custom_key('', 'x');
+check('registered per group', $FD::registered_keys('wohnungen'), array('balcony_area'));
+check('other group empty', $FD::registered_keys('andere'), array());
+$FD::reset_registered_keys();
+
+// Rows as fetch_rows() returns them (raw meta strings)
+$rows = array(
+    array('building_name' => 'Presto', 'status' => 'available', 'floor' => '-10', 'floor_label' => 'GG+EG', 'floor_to' => '0', 'floor_to_label' => 'EG',
+        'orientation' => 'south', 'features' => '["west"]', 'room_count' => '3', 'living_area' => '79.9', 'purchase_price' => '439800'),
+    array('building_name' => 'Allegro', 'status' => 'reserved', 'floor' => '1', 'floor_label' => '1. OG', 'orientation' => 'east',
+        'room_count' => '2', 'living_area' => '154', 'purchase_price' => '990000'),
+    array('building_name' => 'Largo', 'status' => 'available', 'floor' => '99', 'floor_label' => 'DG', 'orientation' => 'Nord',
+        'room_count' => '5', 'living_area' => '70', 'purchase_price' => '280000'),
+    array('building_name' => 'Andante', 'status' => 'sold', 'floor' => '-1', 'floor_label' => '1. UG', 'room_count' => '4', 'living_area' => '101', 'purchase_price' => '1500000'),
+    array('building_name' => 'Presto', 'status' => 'available', 'floor' => '2', 'floor_label' => '2. OG', 'room_count' => '2.5', 'living_area' => '0', 'purchase_price' => '760000'),
+    array('building_name' => '', 'status' => 'available', 'floor' => '', 'room_count' => '0'),
+);
+$labels = function ($opts) { return array_map(function ($o) { return $o['label']; }, $opts); };
+$values = function ($opts) { return array_map(function ($o) { return $o['value']; }, $opts); };
+
+section('options: Haus / Geschoss / Ausrichtung / Zimmer');
+check('Haus: distinct, natural sort, no empty', $labels($FD::button_options('building_name', $rows)), array('Allegro', 'Andante', 'Largo', 'Presto'));
+$floors = $FD::button_options('floor', $rows);
+check('Geschoss: single floors, maisonette split, physical order', $values($floors), array('-1', '-10', '0', '1', '2', '99'));
+check('Geschoss labels from data (EG from floor_to_label)', $labels($floors), array('1. UG', 'GG', 'EG', '1. OG', '2. OG', 'DG'));
+check('Geschoss: maisonette label "GG+EG" never an option', in_array('GG+EG', $labels($floors), true), false);
+check('Ausrichtung: sun order, features + German text', $labels($FD::button_options('orientation', $rows)), array('Ost', 'Süd', 'West', 'Nord'));
+check('Ausrichtung values are keys', $values($FD::button_options('orientation', $rows)), array('east', 'south', 'west', 'north'));
+check('Zimmer: numeric order, 0 = none skipped, 2,5 label', $FD::button_options('room_count', $rows), array(
+    array('value' => '2', 'label' => '2'), array('value' => '2.5', 'label' => '2,5'), array('value' => '3', 'label' => '3'),
+    array('value' => '4', 'label' => '4'), array('value' => '5', 'label' => '5')));
+check('Zimmer grouped from 4 → "4+"', $labels($FD::button_options('room_count', $rows, array('group_from' => 4))), array('2', '2,5', '3', '4+'));
+check('Zimmer "4+" value', $values($FD::button_options('room_count', $rows, array('group_from' => 4)))[3], '4+');
+check('Zimmer group_from above max → no "+" option', $labels($FD::button_options('room_count', $rows, array('group_from' => 9))), array('2', '2,5', '3', '4', '5'));
+check('Eigenes Feld', $labels($FD::button_options('__custom', $rows, array('key' => 'floor_label'))), array('1. OG', '1. UG', '2. OG', 'DG', 'GG+EG'));
+check('Eigenes Feld without key → []', $FD::button_options('__custom', $rows, array('key' => '')), array());
+check('unknown field → []', $FD::button_options('nope', $rows), array());
+check('no rows → []', $FD::button_options('building_name', array()), array());
+
+section('options: designer overrides');
+$auto = $FD::button_options('floor', $rows);
+$custom = $FD::apply_custom_options($auto, array(
+    array('value' => '-10', 'label' => ''),
+    array('value' => ' 0 ', 'label' => 'EG'),
+    array('value' => '1 | 2 |', 'label' => 'OG'),
+    array('value' => '99', 'label' => 'DG'),
+    array('value' => '', 'label' => 'leer'),
+    array('value' => '99', 'label' => 'doppelt'),
+));
+check('override: order + labels + "|" alternatives', $custom, array(
+    array('value' => '-10', 'label' => 'GG'), array('value' => '0', 'label' => 'EG'),
+    array('value' => '1|2', 'label' => 'OG'), array('value' => '99', 'label' => 'DG')));
+check('empty override → automatic', $FD::apply_custom_options($auto, array()), $auto);
+check('only invalid rows → automatic', $FD::apply_custom_options($auto, array(array('value' => ''))), $auto);
+
+section('range: bounds, rounding, formatting');
+$pv = $FD::range_values($rows, 'purchase_price');
+check('price bounds from PUBLIC units only (990k reserved, 1.5M sold ignored)', array($pv['min'], $pv['max'], $pv['count']), array(280000.0, 760000.0, 3));
+$av = $FD::range_values($rows, 'living_area');
+check('area bounds from all units, 0 = no value', array($av['min'], $av['max'], $av['count']), array(70.0, 154.0, 4));
+check('nice step: price span', $FD::nice_step(280000, 760000), 10000.0);
+check('nice step: area span', $FD::nice_step(70, 154), 1.0);
+check('nice step: zero span', $FD::nice_step(5, 5), 1.0);
+check('range config price', $FD::range_config($pv), array('min' => 280000.0, 'max' => 760000.0, 'step' => 10000.0));
+check('rounded outward', $FD::range_config(array('min' => 283500, 'max' => 757000)), array('min' => 280000.0, 'max' => 760000.0, 'step' => 10000.0));
+check('area 69.5–154.2 rounded outward', $FD::range_config(array('min' => 69.5, 'max' => 154.2)), array('min' => 69.0, 'max' => 155.0, 'step' => 1.0));
+check('manual min/max/step win', $FD::range_config($pv, '200000', '900000', '50000'), array('min' => 200000.0, 'max' => 900000.0, 'step' => 50000.0));
+check('manual swapped min/max fixed', $FD::range_config($pv, '900000', '200000', '50000'), array('min' => 200000.0, 'max' => 900000.0, 'step' => 50000.0));
+check('single value → max = min + step', $FD::range_config(array('min' => 80, 'max' => 80)), array('min' => 80.0, 'max' => 81.0, 'step' => 1.0));
+check('no data, no manual → null', $FD::range_config(array('min' => null, 'max' => null)), null);
+check('no data but manual range → config', $FD::range_config(array('min' => null, 'max' => null), '0', '100', '5'), array('min' => 0.0, 'max' => 100.0, 'step' => 5.0));
+foreach (json_decode(file_get_contents(__DIR__ . '/fixtures/format-cases.json'), true) as $c) {
+    check('format ' . json_encode($c['value']) . ' ' . json_encode($c['fmt']), $FD::format_value($c['value'], $c['fmt']), $c['expected']);
+}
+check('default format price = k', $FD::default_format('price')['mode'], 'k');
+check('default format area suffix', $FD::default_format('area')['suffix'], ' m²');
+
+// ---------------------------------------------------------------- elements
+$render = function ($el) { ob_start(); $el->render(); return ob_get_clean(); };
+$attr = function ($html, $name) { return preg_match('/' . preg_quote($name, '/') . '="([^"]*)"/', $html, $m) ? html_entity_decode($m[1], ENT_QUOTES) : null; };
+$FD::set_rows_for_tests($rows);
+
+section('element: Filter-Buttons');
+$b = new ImmoAdmin_Filter_Buttons(array('id' => 'fb1', 'settings' => array('filter_group' => 'Wohnungen', 'field' => 'building_name', 'label' => 'Haus')));
+$b->set_control_groups(); $b->set_controls();
+check('category ImmoAdmin', $b->category, 'immoadmin');
+check('name', $b->name, 'immoadmin-filter-buttons');
+check('group control default "wohnungen" (new element only)', $b->controls['filter_group']['default'], 'wohnungen');
+check('field options include all fields', array_keys($b->controls['field']['options']), array('building_name', 'floor', 'orientation', 'room_count', '__custom'));
+check('style: Aktiv background maps to .brx-option-active', $b->controls['optionActiveBackground']['css'][0]['selector'], '.immoadmin-filter-option.brx-option-active');
+check('style: Hover typography maps to :hover', $b->controls['optionHoverTypography']['css'][0]['selector'], '.immoadmin-filter-option:hover');
+check('style: label typography', $b->controls['labelTypography']['css'][0]['selector'], '.immoadmin-filter-label');
+$html = $render($b);
+check('root data: type + group (sanitized)', array($attr($html, 'data-immoadmin-filter'), $attr($html, 'data-immoadmin-filter-group')), array('buttons', 'wohnungen'));
+check('config JSON', json_decode($attr($html, 'data-immoadmin-filter-config'), true), array('key' => 'building_name', 'match' => 'text', 'multiple' => true));
+preg_match_all('/data-value="([^"]*)"/', $html, $m);
+check('one button per house', $m[1], array('Allegro', 'Andante', 'Largo', 'Presto'));
+check('label + aria-labelledby', strpos($html, '<span class="immoadmin-filter-label" id="iaf-label-fb1">Haus</span>') !== false && strpos($html, 'aria-labelledby="iaf-label-fb1"') !== false, true);
+check('buttons are toggle buttons (aria-pressed=false)', substr_count($html, 'aria-pressed="false"'), 4);
+check('no preset → no bricks-button class', strpos($html, 'bricks-button') === false, true);
+check('no active state on frontend render', strpos($html, 'brx-option-active') === false, true);
+$b2 = new ImmoAdmin_Filter_Buttons(array('id' => 'fb2', 'settings' => array('filter_group' => 'wohnungen', 'field' => 'room_count', 'rooms_group_from' => 4,
+    'selection' => 'single', 'optionStyle' => 'primary', 'optionOutline' => true, 'optionSize' => 'sm')));
+$html2 = $render($b2);
+check('rooms: grouped option values', (preg_match_all('/data-value="([^"]*)"/', $html2, $m2) ? $m2[1] : null), array('2', '2.5', '3', '4+'));
+check('single selection in config', json_decode($attr($html2, 'data-immoadmin-filter-config'), true)['multiple'], false);
+check('no label → aria-label with field name', strpos($html2, 'aria-label="Zimmer"') !== false && strpos($html2, 'immoadmin-filter-label') === false, true);
+check('native presets → bricks-button sm outline bricks-color-primary', strpos($html2, 'class="immoadmin-filter-option bricks-button sm outline bricks-color-primary"') !== false, true);
+$b3 = new ImmoAdmin_Filter_Buttons(array('id' => 'fb3', 'settings' => array('filter_group' => 'wohnungen', 'field' => 'floor',
+    'custom_options' => array(array('value' => '-10', 'label' => 'GG'), array('value' => '0', 'label' => 'EG'), array('value' => '1|2', 'label' => 'OG'), array('value' => '99', 'label' => 'DG')))));
+$html3 = $render($b3);
+check('floor with own options GG EG OG DG', (preg_match_all('/>([^<]+)<\/button>/', $html3, $m3) ? $m3[1] : null), array('GG', 'EG', 'OG', 'DG'));
+check('floor match type', json_decode($attr($html3, 'data-immoadmin-filter-config'), true)['match'], 'floor');
+$nog = new ImmoAdmin_Filter_Buttons(array('id' => 'fb4', 'settings' => array('filter_group' => '', 'field' => 'floor')));
+check('no group, frontend → no output', $render($nog), '');
+$custom_el = new ImmoAdmin_Filter_Buttons(array('id' => 'fb5', 'settings' => array('filter_group' => 'wohnungen', 'field' => '__custom', 'field_custom' => 'floor_label')));
+$render($custom_el);
+check('custom field registers its key for later tables', $FD::registered_keys('wohnungen'), array('floor_label'));
+$FD::reset_registered_keys();
+$FD::set_rows_for_tests(array());
+check('no data, frontend → no output', $render(new ImmoAdmin_Filter_Buttons(array('id' => 'fb6', 'settings' => array('filter_group' => 'wohnungen')))), '');
+$FD::set_rows_for_tests($rows);
+$GLOBALS['__is_builder'] = true;
+$prev = new ImmoAdmin_Filter_Buttons(array('id' => 'fb7', 'settings' => array('filter_group' => 'wohnungen', 'builder_preview_active' => true)));
+$htmlp = $render($prev);
+check('builder preview: first option active + data-builder', substr_count($htmlp, 'aria-pressed="true"') === 1 && strpos($htmlp, 'data-builder="1"') !== false, true);
+$GLOBALS['__is_builder'] = false;
+
+section('element: Filter-Bereich');
+$cfg = ImmoAdmin_Filter_Range::config_for(array('field' => 'purchase_price'), $rows);
+check('price config: public bounds, step, k-format, include empty (auto)', $cfg, array(
+    'key' => 'purchase_price', 'min' => 280000.0, 'max' => 760000.0, 'step' => 10000.0,
+    'format' => array('mode' => 'k', 'decimals' => 0, 'prefix' => '', 'suffix' => ''), 'includeEmpty' => true));
+$cfg = ImmoAdmin_Filter_Range::config_for(array('field' => 'living_area'), $rows);
+check('area config: m², no empty by default', array($cfg['min'], $cfg['max'], $cfg['step'], $cfg['format']['suffix'], $cfg['includeEmpty']), array(70.0, 154.0, 1.0, ' m²', false));
+$cfg = ImmoAdmin_Filter_Range::config_for(array('field' => 'living_area', 'empty_handling' => 'show', 'value_format' => 'plain', 'suffix' => ' qm', 'decimals' => '1', 'prefix' => 'ca. '), $rows);
+check('overrides: empty show, format, suffix, prefix, decimals', array($cfg['includeEmpty'], $cfg['format']), array(true, array('mode' => 'plain', 'decimals' => 1, 'prefix' => 'ca. ', 'suffix' => ' qm')));
+check('price "hide" override', ImmoAdmin_Filter_Range::config_for(array('field' => 'purchase_price', 'empty_handling' => 'hide'), $rows)['includeEmpty'], false);
+check('custom numeric key keeps 0 as value', ImmoAdmin_Filter_Range::config_for(array('field' => '__custom', 'field_custom' => 'room_count'), $rows)['min'], 0.0);
+check('custom key missing → null', ImmoAdmin_Filter_Range::config_for(array('field' => '__custom'), $rows), null);
+check('unknown field falls back to Wohnfläche', ImmoAdmin_Filter_Range::config_for(array('field' => 'evil'), $rows)['key'], 'living_area');
+$r = new ImmoAdmin_Filter_Range(array('id' => 'fr1', 'settings' => array('filter_group' => 'wohnungen', 'field' => 'purchase_price', 'label' => 'Preis')));
+$r->set_control_groups(); $r->set_controls();
+check('range style: thumb border on both engines', array_column($r->controls['sliderThumbBorder']['css'], 'selector'), array(
+    '.double-slider-wrap input[type="range"]::-webkit-slider-thumb', '.double-slider-wrap input[type="range"]::-moz-range-thumb'));
+check('range style: active bar color is a CSS variable', $r->controls['sliderBarColorActive']['css'][0]['property'], '--iaf-bar-active-color');
+$rh = $render($r);
+check('two native range inputs', substr_count($rh, '<input type="range"'), 2);
+check('min/max/step on inputs', strpos($rh, 'min="280000" max="760000" step="10000"') !== false, true);
+check('SSR value labels "280k" … "760k"', strpos($rh, '<span class="value">280k</span>') !== false && strpos($rh, '<span class="value">760k</span>') !== false, true);
+check('accessible names + valuetext', strpos($rh, 'aria-label="Preis Minimum" aria-valuetext="280k"') !== false && strpos($rh, 'aria-label="Preis Maximum" aria-valuetext="760k"') !== false, true);
+check('reserved/sold prices not in range markup', strpos($rh, '990') === false && strpos($rh, '1500000') === false, true);
+check('native class structure', strpos($rh, 'class="double-slider-wrap"') !== false && strpos($rh, 'class="slider-track"') !== false && strpos($rh, 'class="value-wrap"') !== false, true);
+$ra = new ImmoAdmin_Filter_Range(array('id' => 'fr2', 'settings' => array('filter_group' => 'wohnungen', 'field' => 'living_area')));
+$rah = $render($ra);
+check('area labels "70 m²" … "154 m²"', strpos($rah, '>70 m²<') !== false && strpos($rah, '>154 m²<') !== false, true);
+check('no label → aria-label on group', strpos($rah, 'role="group" aria-label="Wohnfläche"') !== false, true);
+
+section('element: Filter-Aktionen');
+$a = new ImmoAdmin_Filter_Actions(array('id' => 'fa1', 'settings' => array('filter_group' => 'wohnungen', 'submit_text' => 'Suchen',
+    'submitIcon' => array('library' => 'themify', 'icon' => 'ti-arrow-right'), 'reset_text' => 'Filter zurücksetzen', 'submitStyle' => 'primary', 'resetStyle' => 'primary', 'resetOutline' => true)));
+$a->set_control_groups(); $a->set_controls();
+check('submit default style primary (native)', $a->controls['submitStyle']['default'], 'primary');
+check('reset default outline', $a->controls['resetOutline']['default'], true);
+check('apply_on has no default (= click)', array_key_exists('default', $a->controls['apply_on']), false);
+$ah = $render($a);
+check('apply on click by default', $attr($ah, 'data-apply-on'), 'click');
+check('submit button: native classes + text + icon right', strpos($ah, '<button type="button" class="immoadmin-filter-submit bricks-button bricks-background-primary" data-immoadmin-filter-action="submit"><span class="text">Suchen</span><i class="icon ti-arrow-right"></i></button>') !== false, true);
+check('reset button outline', strpos($ah, 'class="immoadmin-filter-reset bricks-button outline bricks-color-primary" data-immoadmin-filter-action="reset"') !== false, true);
+$a2 = new ImmoAdmin_Filter_Actions(array('id' => 'fa2', 'settings' => array('filter_group' => 'wohnungen', 'apply_on' => 'change', 'hide_submit' => true, 'reset_hide_inactive' => true,
+    'resetIcon' => array('icon' => 'ti-close'), 'resetIconPosition' => 'left')));
+$ah2 = $render($a2);
+check('instant mode', $attr($ah2, 'data-apply-on'), 'change');
+check('submit hidden', strpos($ah2, 'immoadmin-filter-submit') === false, true);
+check('reset hidden-when-inactive flag + class, icon left', strpos($ah2, 'immoadmin-no-active-filter" data-immoadmin-filter-action="reset" data-hide-inactive="1"><i class="icon ti-close"></i><span class="text">Filter zurücksetzen</span>') !== false, true);
+$a3 = new ImmoAdmin_Filter_Actions(array('id' => 'fa3', 'settings' => array('filter_group' => 'wohnungen', 'hide_submit' => true, 'hide_reset' => true)));
+check('both hidden → empty element still carries the mode', strpos($render($a3), 'data-apply-on="click"') !== false, true);
+
+section('enqueue');
+$GLOBALS['__enqueued'] = array();
+$a->enqueue_scripts();
+check('filter element enqueues css + logic + controller', $GLOBALS['__enqueued'], array('style:immoadmin-filters', 'script:immoadmin-filter-logic', 'script:immoadmin-filters'));
+$GLOBALS['__enqueued'] = array();
+(new ImmoAdmin_Units_Table(array('id' => 't1', 'settings' => array())))->enqueue_scripts();
+check('table without group: only its own assets (as before)', $GLOBALS['__enqueued'], array('style:immoadmin-units-table', 'script:immoadmin-units-table'));
+$GLOBALS['__enqueued'] = array();
+(new ImmoAdmin_Units_Table(array('id' => 't1', 'settings' => array('immoadmin_filter_group' => 'wohnungen'))))->enqueue_scripts();
+check('table with group: + filter assets', count($GLOBALS['__enqueued']), 5);
+
+section('units-table: filter controls are opt-in');
+$tc = new ImmoAdmin_Units_Table(array('id' => 'tc1', 'settings' => array()));
+$tc->set_control_groups(); $tc->set_controls();
+$new_ctrls = array('immoadmin_filter_group', 'immoadmin_filter_empty', 'immoadmin_filter_empty_text', 'immoadmin_filter_hide_with', 'immoadmin_filter_hide_selector', 'immoadmin_filter_extra_keys');
+foreach ($new_ctrls as $k) {
+    check("{$k}: exists, no default", isset($tc->controls[$k]) && !array_key_exists('default', $tc->controls[$k]), true);
+}
+check('filter control group in content tab', $tc->control_groups['filter']['tab'] ?? null, 'content');
+check('existing control groups keep their order', array_keys($tc->control_groups), array('query', 'columns', 'behavior', 'filter', 'table_style'));
+check('group from settings: absent', ImmoAdmin_Units_Table::filter_group_from_settings(array()), '');
+check('group from settings: sanitized', ImmoAdmin_Units_Table::filter_group_from_settings(array('immoadmin_filter_group' => ' Wohnungen')), 'wohnungen');
+
+section('units-table: with Filter-Gruppe');
+$fsettings = immoadmin_test_table_cases()['accordion-preset'];
+$fsettings['immoadmin_filter_group'] = 'Wohnungen';
+$fsettings['immoadmin_filter_empty'] = 'message';
+$fsettings['immoadmin_filter_empty_text'] = 'Nichts <b>gefunden</b>';
+$fsettings['immoadmin_filter_hide_with'] = 'custom';
+$fsettings['immoadmin_filter_hide_selector'] = '.haus';
+$fsettings['immoadmin_filter_extra_keys'] = 'garden_area_formatted, parking_price';
+$fixture_ids = immoadmin_test_table_fixture_posts();
+$GLOBALS['__meta'][701]['parking_price'] = '25000';
+$GLOBALS['__meta'][702]['parking_price'] = '26000';
+$fh = immoadmin_test_render_table($fsettings, 'tbl777', $fixture_ids);
+check('root: group attr', $attr($fh, 'data-immoadmin-filter-group'), 'wohnungen');
+check('root: empty mode + escaped text', array($attr($fh, 'data-immoadmin-filter-empty'), strpos($fh, 'data-immoadmin-filter-empty-text="Nichts &lt;b&gt;gefunden&lt;/b&gt;"') !== false), array('message', true));
+check('root: hide wrapper selector', array($attr($fh, 'data-immoadmin-filter-hide'), $attr($fh, 'data-immoadmin-filter-hide-selector')), array('custom', '.haus'));
+preg_match_all('/data-unit-id="(\d+)"[^>]*data-immoadmin-filter-values="([^"]*)"/', $fh, $fm);
+$rowvals = array();
+foreach ($fm[1] as $i => $pid) { $rowvals[$pid] = json_decode(html_entity_decode($fm[2][$i], ENT_QUOTES), true); }
+check('every rendered unit carries values (all 4 statuses shown)', array_keys($rowvals), array(701, 702, 703, 704));
+check('available unit: full values', $rowvals['701'], array(
+    'building_name' => 'Presto', 'floor' => -10, 'floor_to' => 0, 'orientation' => array('south', 'west'), 'room_count' => 3, 'living_area' => 79.9,
+    'usable_area' => null, 'purchase_price' => 439800, 'rent_cold' => null, 'rent_warm' => null, 'price_per_sqm' => null,
+    'garden_area_formatted' => '80 m²', 'parking_price' => 25000));
+check('reserved unit: price + parking price null', array($rowvals['702']['purchase_price'], $rowvals['702']['parking_price']), array(null, null));
+check('reserved unit: other values present', array($rowvals['702']['building_name'], $rowvals['702']['floor'], $rowvals['702']['living_area']), array('Allegro', 1, 54));
+check('sold unit: price null', $rowvals['703']['purchase_price'], null);
+check('unit with 0 values: null (no value)', array($rowvals['704']['room_count'], $rowvals['704']['living_area'], $rowvals['704']['purchase_price'], $rowvals['704']['floor']), array(null, null, null, 0));
+check('reserved/sold prices nowhere in markup', strpos($fh, '500000') === false && strpos($fh, '500.000') === false && strpos($fh, '760000') === false && strpos($fh, '26000') === false, true);
+check('accordion item carries values (not the title row)', preg_match('/<div class="accordion-item immoadmin-table-rowgroup" role="rowgroup" data-unit-id="701"[^>]*data-immoadmin-filter-values=/', $fh), 1);
+check('restricted bare row carries values', preg_match('/<div class="immoadmin-table-row[^"]*is-reserved"[^>]*data-unit-id="702"[^>]*data-immoadmin-filter-values=/', $fh), 1);
+$stripped = preg_replace('/ data-immoadmin-filter-(values|group|empty|empty-text|hide|hide-selector)="[^"]*"/', '', $fh);
+check('with group: identical to baseline apart from the new data attributes', $stripped, $baseline['accordion-preset']);
+$GLOBALS['__is_builder'] = false;
+$FD::register_custom_key('wohnungen', 'balcony_area');
+$fh2 = immoadmin_test_render_table(array_merge(immoadmin_test_table_cases()['table-legacy-dim'], array('immoadmin_filter_group' => 'wohnungen')));
+check('table mode: rows carry values incl. key registered by an earlier filter', substr_count($fh2, '&quot;balcony_area&quot;:null'), 4);
+check('defaults: no empty/hide attrs', strpos($fh2, 'data-immoadmin-filter-empty') === false && strpos($fh2, 'data-immoadmin-filter-hide') === false, true);
+$FD::reset_registered_keys();
+$fh3 = immoadmin_test_render_table(array_merge(immoadmin_test_table_cases()['table-legacy-dim'], array('immoadmin_filter_group' => 'wohnungen', 'immoadmin_filter_hide_with' => 'custom')));
+check('custom hide without selector → no hide attr', strpos($fh3, 'data-immoadmin-filter-hide') === false, true);
+$GLOBALS['__meta'][701]['status'] = 'available';
+unset($GLOBALS['__meta'][701]['parking_price'], $GLOBALS['__meta'][702]['parking_price']);
+$FD::set_rows_for_tests(null);
 
 // cleanup temp dir
 @unlink(IMMOADMIN_MEDIA_DIR . 'abc123-plan.png');
