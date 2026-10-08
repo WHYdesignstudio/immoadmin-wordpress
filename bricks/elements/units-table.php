@@ -503,15 +503,9 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // unless a filter acts on the table (Filter-Gruppe, or since v2.15.0
         // a filter on the page targeting it / all tables), so a page without
         // ImmoAdmin filters renders byte-identical to v2.13.0 (tested).
-        $this->controls['immoadmin_filter_group'] = [
-            'tab'            => 'content',
-            'group'          => 'filter',
-            'label'          => esc_html__('Filter-Gruppe (optional)', 'immoadmin'),
-            'type'           => 'text',
-            'placeholder'    => esc_html__('keine', 'immoadmin'),
-            'hasDynamicData' => false,
-            'description'    => esc_html__('Meist nicht nötig: Die ImmoAdmin-Filter wirken ohne weitere Einstellung auf alle Tabellen der Seite, oder auf die dort unter „Ziel-Tabellen“ gewählten. Eine Gruppe verbindet zusätzlich alle Filter und Tabellen mit demselben Namen.', 'immoadmin'),
-        ];
+        // "Filter-Gruppe" control removed in v2.15.2 (filters pick tables via
+        // "Ziel-Tabellen"); a stored immoadmin_filter_group is still honoured
+        // by filter_group_from_settings() so legacy pages keep working.
 
         $this->controls['immoadmin_filter_empty'] = [
             'tab'         => 'content',

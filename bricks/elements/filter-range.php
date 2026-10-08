@@ -3,7 +3,7 @@
  * Bricks Element: ImmoAdmin Filter-Bereich (v2.14.0, Wert-Position v2.15.1)
  *
  * Dual-handle range slider (Wohnfläche, Preis, …) acting on every
- * units-table with the same "Filter-Gruppe". Markup mirrors Bricks' native
+ * units-table picked in "Ziel-Tabellen" (empty = all). Markup mirrors Bricks' native
  * "Filter – Range" in slider mode (.double-slider-wrap / .slider-base /
  * .slider-track / input.min / input.max / .value-wrap) so the structure is
  * familiar; two native <input type="range"> = keyboard + screen reader

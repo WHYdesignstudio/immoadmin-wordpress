@@ -7,10 +7,12 @@
  * each separately stylable and hideable.
  *
  * Responsible for (v2.15.0): every filter that acts on at least one of
- * its tables (Ziel-Tabellen ∪ Filter-Gruppe; neither = all tables, i.e.
- * all filters on the page). Its "Filter anwenden" setting decides for those
- * filters: on "Suchen" click (default) or instantly on every change. A
- * filter no actions element is responsible for always filters instantly.
+ * its tables (Ziel-Tabellen; nothing picked = all tables, i.e.
+ * all filters on the page). Since v2.15.2 the "Suchen" button decides for
+ * those filters: shown = on "Suchen" click, hidden = instantly on every
+ * change (the former "Filter anwenden" setting is gone, stored values are
+ * ignored). A filter no actions element is responsible for always filters
+ * instantly.
  *
  * @package ImmoAdmin\Bricks
  */
@@ -45,23 +47,12 @@ class ImmoAdmin_Filter_Actions extends ImmoAdmin_Filter_Element {
             esc_html__('Leer = alle ImmoAdmin-Tabellen auf dieser Seite: „Suchen“ und „Zurücksetzen“ gelten dann für alle Filter der Seite. Sonst gelten sie für alle Filter, die auf mindestens eine der gewählten Tabellen wirken.', 'immoadmin')
         ));
 
-        $this->controls['apply_on'] = [
-            'label'       => esc_html__('Filter anwenden', 'immoadmin'),
-            'type'        => 'select',
-            'options'     => [
-                'click'  => esc_html__('Beim Klick auf „Suchen“', 'immoadmin'),
-                'change' => esc_html__('Sofort bei jeder Änderung', 'immoadmin'),
-            ],
-            'inline'      => true,
-            'placeholder' => esc_html__('Beim Klick auf „Suchen“', 'immoadmin'),
-            'description' => esc_html__('Gilt für alle Filter, für die dieses Element zuständig ist (siehe Ziel-Tabellen). Filter ohne zuständiges Aktionen-Element filtern immer sofort.', 'immoadmin'),
-        ];
-
         // ---------- Suchen ----------
         $this->controls['hide_submit'] = [
             'group' => 'submit',
             'label' => esc_html__('„Suchen“ ausblenden', 'immoadmin'),
             'type'  => 'checkbox',
+            'description' => esc_html__('„Suchen“ sichtbar = Filter greifen erst beim Klick auf „Suchen“. Ausgeblendet = Filter greifen sofort.', 'immoadmin'),
         ];
         $this->controls['submit_text'] = [
             'group'          => 'submit',
@@ -229,17 +220,25 @@ class ImmoAdmin_Filter_Actions extends ImmoAdmin_Filter_Element {
         return $html;
     }
 
+    /**
+     * Apply mode (v2.15.2): derived from the "Suchen" button alone —
+     * shown = 'click' (filters wait for "Suchen"), hidden = 'change'
+     * (instant). A stored 'apply_on' from v2.14/v2.15.0–1 is ignored.
+     */
+    public static function apply_mode($settings) {
+        return empty($settings['hide_submit']) ? 'click' : 'change';
+    }
+
     public function render() {
         $settings = $this->settings;
         $this->prepare_root('actions');
 
-        $apply_on = ($settings['apply_on'] ?? 'click') === 'change' ? 'change' : 'click';
-        $this->set_attribute('_root', 'data-apply-on', $apply_on);
-
         $show_submit = empty($settings['hide_submit']);
         $show_reset  = empty($settings['hide_reset']);
+        $this->set_attribute('_root', 'data-apply-on', self::apply_mode($settings));
+
         if (!$show_submit && !$show_reset) {
-            // Still rendered (empty) so the group keeps the chosen apply mode.
+            // Still rendered (empty) so its filters keep the derived apply mode.
             $this->set_attribute('_root', 'class', 'immoadmin-filter-actions--empty');
         }
 

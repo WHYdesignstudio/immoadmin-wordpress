@@ -771,8 +771,8 @@ $b = new ImmoAdmin_Filter_Buttons(array('id' => 'fb1', 'settings' => array('filt
 $b->set_control_groups(); $b->set_controls();
 check('category ImmoAdmin', $b->category, 'immoadmin');
 check('name', $b->name, 'immoadmin-filter-buttons');
-check('v2.15: group control has no default any more (new elements = all tables)', array_key_exists('default', $b->controls['filter_group']), false);
-check('v2.15: "Ziel-Tabellen" multi-select on top, before the group', array(array_slice(array_keys($b->controls), 0, 2), $b->controls['filter_targets']['type'], $b->controls['filter_targets']['multiple']), array(array('filter_targets', 'filter_group'), 'select', true));
+check('v2.15.2: no "Filter-Gruppe" control any more', isset($b->controls['filter_group']), false);
+check('v2.15.2: "Ziel-Tabellen" multi-select is the first control', array(array_slice(array_keys($b->controls), 0, 1), $b->controls['filter_targets']['type'], $b->controls['filter_targets']['multiple']), array(array('filter_targets'), 'select', true));
 check('v2.15: Ziel-Tabellen help text explains the empty default', strpos($b->controls['filter_targets']['description'], 'Leer = alle ImmoAdmin-Tabellen auf dieser Seite') === 0, true);
 check('v2.15: no builder → no options (frontend never scans for the dropdown)', $b->controls['filter_targets']['options'], array());
 check('field options include all fields', array_keys($b->controls['field']['options']), array('building_name', 'floor', 'orientation', 'room_count', '__custom'));
@@ -910,19 +910,32 @@ $a = new ImmoAdmin_Filter_Actions(array('id' => 'fa1', 'settings' => array('filt
 $a->set_control_groups(); $a->set_controls();
 check('submit default style primary (native)', $a->controls['submitStyle']['default'], 'primary');
 check('reset default outline', $a->controls['resetOutline']['default'], true);
-check('apply_on has no default (= click)', array_key_exists('default', $a->controls['apply_on']), false);
+check('v2.15.2: no "Filter anwenden" control any more', isset($a->controls['apply_on']), false);
+check('v2.15.2: no "Filter-Gruppe" control', isset($a->controls['filter_group']), false);
+check('v2.15.2: Suchen toggle explains the apply mode', $a->controls['hide_submit']['description'] ?? '', '„Suchen“ sichtbar = Filter greifen erst beim Klick auf „Suchen“. Ausgeblendet = Filter greifen sofort.');
 $ah = $render($a);
-check('apply on click by default', $attr($ah, 'data-apply-on'), 'click');
+check('Suchen shown → apply on click', $attr($ah, 'data-apply-on'), 'click');
 check('submit button: native classes + text + icon right', strpos($ah, '<button type="button" class="immoadmin-filter-submit bricks-button bricks-background-primary" data-immoadmin-filter-action="submit"><span class="text">Suchen</span><i class="icon ti-arrow-right"></i></button>') !== false, true);
 check('reset button outline', strpos($ah, 'class="immoadmin-filter-reset bricks-button outline bricks-color-primary" data-immoadmin-filter-action="reset"') !== false, true);
 $a2 = new ImmoAdmin_Filter_Actions(array('id' => 'fa2', 'settings' => array('filter_group' => 'wohnungen', 'apply_on' => 'change', 'hide_submit' => true, 'reset_hide_inactive' => true,
     'resetIcon' => array('icon' => 'ti-close'), 'resetIconPosition' => 'left')));
 $ah2 = $render($a2);
-check('instant mode', $attr($ah2, 'data-apply-on'), 'change');
+check('Suchen hidden → instant mode', $attr($ah2, 'data-apply-on'), 'change');
 check('submit hidden', strpos($ah2, 'immoadmin-filter-submit') === false, true);
 check('reset hidden-when-inactive flag + class, icon left', strpos($ah2, 'immoadmin-no-active-filter" data-immoadmin-filter-action="reset" data-hide-inactive="1"><i class="icon ti-close"></i><span class="text">Filter zurücksetzen</span>') !== false, true);
 $a3 = new ImmoAdmin_Filter_Actions(array('id' => 'fa3', 'settings' => array('filter_group' => 'wohnungen', 'hide_submit' => true, 'hide_reset' => true)));
-check('both hidden → empty element still carries the mode', strpos($render($a3), 'data-apply-on="click"') !== false, true);
+check('both hidden → empty element still carries the (instant) mode', strpos($render($a3), 'data-apply-on="change"') !== false, true);
+// v2.15.2: the Suchen button alone decides; a stored apply_on is ignored.
+foreach (array(
+    array(array(), 'click', 'no stored apply, Suchen shown'),
+    array(array('hide_submit' => true), 'change', 'no stored apply, Suchen hidden'),
+    array(array('apply_on' => 'click'), 'click', 'stored click, Suchen shown'),
+    array(array('apply_on' => 'click', 'hide_submit' => true), 'change', 'stored click, Suchen hidden (was unusable) → instant'),
+    array(array('apply_on' => 'change'), 'click', 'stored instant, Suchen shown → click'),
+    array(array('apply_on' => 'change', 'hide_submit' => true), 'change', 'stored instant, Suchen hidden'),
+) as $i => $c) {
+    check('apply mode: ' . $c[2], array(ImmoAdmin_Filter_Actions::apply_mode($c[0]), $attr($render(new ImmoAdmin_Filter_Actions(array('id' => 'fam' . $i, 'settings' => $c[0]))), 'data-apply-on')), array($c[1], $c[1]));
+}
 
 section('enqueue');
 $GLOBALS['__enqueued'] = array();
@@ -938,7 +951,8 @@ check('table with group: + filter assets', count($GLOBALS['__enqueued']), 5);
 section('units-table: filter controls are opt-in');
 $tc = new ImmoAdmin_Units_Table(array('id' => 'tc1', 'settings' => array()));
 $tc->set_control_groups(); $tc->set_controls();
-$new_ctrls = array('immoadmin_filter_group', 'immoadmin_filter_empty', 'immoadmin_filter_empty_text', 'immoadmin_filter_hide_with', 'immoadmin_filter_hide_selector', 'immoadmin_filter_extra_keys');
+check('v2.15.2: units-table has no "Filter-Gruppe" control any more', isset($tc->controls['immoadmin_filter_group']), false);
+$new_ctrls = array('immoadmin_filter_empty', 'immoadmin_filter_empty_text', 'immoadmin_filter_hide_with', 'immoadmin_filter_hide_selector', 'immoadmin_filter_extra_keys');
 foreach ($new_ctrls as $k) {
     check("{$k}: exists, no default", isset($tc->controls[$k]) && !array_key_exists('default', $tc->controls[$k]), true);
 }
@@ -1102,6 +1116,27 @@ $aold = $render(new ImmoAdmin_Filter_Actions(array('id' => 'fao', 'settings' => 
 check('v2.14.0 saved actions element: unchanged group attr', $attr($aold, 'data-immoadmin-filter-group'), 'wohnungen');
 $ac = new ImmoAdmin_Filter_Actions(array('id' => 'fac', 'settings' => array()));
 $ac->set_control_groups(); $ac->set_controls();
+foreach (array('ImmoAdmin_Filter_Buttons', 'ImmoAdmin_Filter_Range', 'ImmoAdmin_Filter_Actions') as $cls) {
+    $el = new $cls(array('id' => 'nog', 'settings' => array()));
+    $el->set_control_groups(); $el->set_controls();
+    $hay = json_encode($el->controls, JSON_UNESCAPED_UNICODE);
+    check("v2.15.2: {$cls} panel without Filter-Gruppe", array(isset($el->controls['filter_group']), strpos($hay, 'Filter-Gruppe') === false), array(false, true));
+}
+$tcg = new ImmoAdmin_Units_Table(array('id' => 'tng', 'settings' => array()));
+$tcg->set_control_groups(); $tcg->set_controls();
+check('v2.15.2: units-table panel without Filter-Gruppe, Keine Treffer / mit ausblenden stay', array(strpos(json_encode($tcg->controls, JSON_UNESCAPED_UNICODE), 'Filter-Gruppe') === false, isset($tcg->controls['immoadmin_filter_empty']), isset($tcg->controls['immoadmin_filter_hide_with'])), array(true, true, true));
+// Legacy stored groups (v2.14 default "wohnungen"): honoured only while a table on the page carries it.
+$tabs = array(array('id' => 'ta', 'group' => ''), array('id' => 'tb', 'group' => ''));
+check('v2.15.2: orphan stored group → all tables', array(array_map(function ($t) use ($FD, $tabs) { return $FD::applies_to_table(array(), 'wohnungen', $t['id'], $t['group'], array()); }, $tabs)), array(array(true, true)));
+$present = array('haus-a' => true, 'haus-b' => true);
+$ltabs = array(array('ta', 'haus-a'), array('tb', 'haus-b'), array('tc', ''));
+check('v2.15.2: matching legacy groups keep separate setups (2 groups, 1 page)', array(
+    array_map(function ($t) use ($FD, $present) { return $FD::applies_to_table(array(), 'haus-a', $t[0], $t[1], $present); }, $ltabs),
+    array_map(function ($t) use ($FD, $present) { return $FD::applies_to_table(array(), 'haus-b', $t[0], $t[1], $present); }, $ltabs),
+    array_map(function ($t) use ($FD, $present) { return $FD::applies_to_table(array(), '', $t[0], $t[1], $present); }, $ltabs),
+), array(array(true, false, false), array(false, true, false), array(true, true, true)));
+$lg = $render(new ImmoAdmin_Filter_Buttons(array('id' => 'flg', 'settings' => array('filter_group' => 'Wohnungen', 'field' => 'building_name'))));
+check('v2.15.2: stored group still rendered for the JS (legacy)', $attr($lg, 'data-immoadmin-filter-group'), 'wohnungen');
 check('actions help text explains coordination', strpos($ac->controls['filter_targets']['description'], 'Leer = alle ImmoAdmin-Tabellen auf dieser Seite') === 0 && strpos($ac->controls['filter_targets']['description'], 'mindestens eine') !== false, true);
 $FD::reset_registered_keys();
 $FD::set_rows_for_tests(null);

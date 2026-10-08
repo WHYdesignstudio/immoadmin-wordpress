@@ -3,8 +3,8 @@
  * Bricks Element: ImmoAdmin Filter-Buttons (v2.14.0)
  *
  * One row of pill buttons for one field (Haus, Geschoss, Ausrichtung,
- * Zimmer or a custom meta key). Acts on every units-table with the same
- * "Filter-Gruppe" — client-side, no reload. Modeled on Bricks' native
+ * Zimmer or a custom meta key). Acts on every units-table picked in
+ * "Ziel-Tabellen" (empty = all) — client-side, no reload. Modeled on Bricks' native
  * "Filter – Checkbox" in button mode (same option markup classes:
  * .brx-option-active for the selected state).
  *

@@ -5,7 +5,8 @@
  * Abstract, never registered itself. Structure and control naming follow
  * Bricks' own Filter elements (includes/elements/filter-base.php) so the
  * panel feels familiar: the connecting settings sit on top (Bricks: "Target
- * query" — here: "Ziel-Tabellen" (v2.15.0) and the optional "Filter-Gruppe"),
+ * query" — here: "Ziel-Tabellen" (v2.15.0); the "Filter-Gruppe" control was
+ * removed in v2.15.2, stored groups are still honoured, see filter-data.php),
  * style controls live in groups below and map to CSS via the native `css`
  * arrays.
  *
@@ -68,30 +69,17 @@ if (!class_exists('ImmoAdmin_Filter_Element')) {
         }
 
         /**
-         * "Filter-Gruppe" (v2.14.0) — still honoured, now optional. New
-         * elements get no default any more (empty = all tables / the picked
-         * Ziel-Tabellen); saved elements keep the 'wohnungen' Bricks stored
-         * when they were created, so existing setups work unchanged.
+         * The connecting control on top of the panel. The "Filter-Gruppe"
+         * control is gone since v2.15.2; a group stored by v2.14.x/v2.15.x is
+         * still read (get_group) and only matters while a table on the page
+         * carries the same group — otherwise the filter acts on all tables.
          */
-        protected function group_control() {
-            return [
-                'label'          => esc_html__('Filter-Gruppe (optional)', 'immoadmin'),
-                'type'           => 'text',
-                'inline'         => true,
-                'placeholder'    => esc_html__('keine', 'immoadmin'),
-                'hasDynamicData' => false,
-                'description'    => esc_html__('Nur für Fortgeschrittene: wirkt zusätzlich auf alle Tabellen mit derselben „Filter-Gruppe“. Hat keine Tabelle auf der Seite diese Gruppe und sind keine Ziel-Tabellen gewählt, wirkt der Filter auf alle Tabellen.', 'immoadmin'),
-            ];
-        }
-
-        /** Both connecting controls, on top of the panel. */
         protected function targeting_controls($help = null) {
             if ($help === null) {
                 $help = esc_html__('Leer = alle ImmoAdmin-Tabellen auf dieser Seite. Sonst filtert dieser Filter nur die gewählten Tabellen (mehrere möglich).', 'immoadmin');
             }
             return [
                 'filter_targets' => $this->targets_control($help),
-                'filter_group'   => $this->group_control(),
             ];
         }
 
