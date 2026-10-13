@@ -1141,6 +1141,315 @@ check('actions help text explains coordination', strpos($ac->controls['filter_ta
 $FD::reset_registered_keys();
 $FD::set_rows_for_tests(null);
 
+// ================================================================ v2.15.3
+// Badge text colours + typography, placeholder styling, column visibility
+// per Bricks breakpoint ("Ausblenden auf")
+
+$UT = 'ImmoAdmin_Units_Table';
+
+section('units-table v2.15.3: badge + placeholder controls');
+$sc = new ImmoAdmin_Units_Table(array('id' => 'sc1', 'settings' => array()));
+$sc->set_control_groups(); $sc->set_controls();
+foreach (array('available', 'reserved', 'sold', 'rented') as $st) {
+    $c = $sc->controls['text_color_' . $st] ?? array();
+    check("text_color_{$st}: style tab / table_style / color", array($c['tab'] ?? null, $c['group'] ?? null, $c['type'] ?? null), array('style', 'table_style', 'color'));
+    check("text_color_{$st}: sets --iat-text-{$st} on the root", $c['css'] ?? null, array(array('property' => '--iat-text-' . $st)));
+    check("text_color_{$st}: no default (CSS falls back to #fff)", array_key_exists('default', $c), false);
+}
+check('text colour labels', array($sc->controls['text_color_available']['label'], $sc->controls['text_color_rented']['label']), array('Verfügbar – Textfarbe', 'Vermietet – Textfarbe'));
+check('text colours sit right after the background colours', array_slice(array_keys($sc->controls), array_search('color_rented', array_keys($sc->controls), true) + 1, 4),
+    array('text_color_available', 'text_color_reserved', 'text_color_sold', 'text_color_rented'));
+check('existing status colours unchanged', array($sc->controls['color_rented']['default'], $sc->controls['color_rented']['css']), array(array('hex' => '#ef4444'), array(array('property' => '--iat-color-rented'))));
+check('badge typography → font on .immoadmin-status-badge, colour excluded', array($sc->controls['badge_typography']['type'], $sc->controls['badge_typography']['css'], $sc->controls['badge_typography']['exclude']),
+    array('typography', array(array('property' => 'font', 'selector' => '.immoadmin-status-badge')), array('color')));
+check('badge padding', array($sc->controls['badge_padding']['type'], $sc->controls['badge_padding']['css']), array('spacing', array(array('property' => 'padding', 'selector' => '.immoadmin-status-badge'))));
+check('badge border-radius', array($sc->controls['badge_border_radius']['type'], $sc->controls['badge_border_radius']['css']), array('number', array(array('property' => 'border-radius', 'selector' => '.immoadmin-status-badge'))));
+check('placeholder colour also resets opacity to 1', $sc->controls['empty_color']['css'], array(
+    array('property' => 'color', 'selector' => '.immoadmin-cell-empty'),
+    array('property' => 'opacity', 'selector' => '.immoadmin-cell-empty', 'value' => '1')));
+check('placeholder typography, colour excluded', array($sc->controls['empty_typography']['css'], $sc->controls['empty_typography']['exclude']),
+    array(array(array('property' => 'font', 'selector' => '.immoadmin-cell-empty')), array('color')));
+$new_style = array('badge_typography', 'badge_padding', 'badge_border_radius', 'empty_color', 'empty_typography');
+check('new style controls: no defaults, all in style/table_style', array_map(function ($k) use ($sc) {
+    return array_key_exists('default', $sc->controls[$k]) ? 'DEFAULT' : $sc->controls[$k]['tab'] . '/' . $sc->controls[$k]['group'];
+}, $new_style), array_fill(0, 5, 'style/table_style'));
+
+section('units-table v2.15.3: CSS fallbacks keep the old look');
+$utcss = file_get_contents(__DIR__ . '/../bricks/assets/css/units-table.css');
+$block = function ($css, $selector) {
+    $p = strpos($css, $selector . ' {');
+    return $p === false ? '' : substr($css, $p, strpos($css, '}', $p) - $p);
+};
+$badge = $block($utcss, ':where(.brxe-immoadmin-units-table) .immoadmin-status-badge');
+check('badge: text colour var with #fff fallback', strpos($badge, 'color: var(--iat-text-available, #fff);') !== false, true);
+check('badge: hardcoded "color: #fff" gone', preg_match('/\scolor:\s*#fff;/', $badge), 0);
+check('badge: other defaults untouched', array(strpos($badge, 'padding: 0.2em 0.6em;') !== false, strpos($badge, 'border-radius: var(--bricks-border-radius, 4px);') !== false, strpos($badge, 'font-size: 0.85em;') !== false), array(true, true, true));
+foreach (array('available' => 'var(--iat-text-available, #fff)', 'reserved' => 'var(--iat-text-reserved, #fff)', 'sold' => 'var(--iat-text-sold, #fff)', 'rented' => 'var(--iat-text-rented, var(--iat-text-sold, #fff))') as $st => $expect) {
+    check("badge .is-{$st}: color {$expect}", strpos($block($utcss, ':where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-' . $st), 'color: ' . $expect . ';') !== false, true);
+}
+check('badge .is-rented: background fallback to sold kept', strpos($block($utcss, ':where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-rented'), 'background-color: var(--iat-color-rented, var(--iat-color-sold));') !== false, true);
+$empty = $block($utcss, ':where(.brxe-immoadmin-units-table) .immoadmin-cell-empty');
+check('placeholder: grey + opacity 0.6 unchanged', array(strpos($empty, 'color: var(--bricks-text-medium, #94a3b8);') !== false, strpos($empty, 'opacity: 0.6;') !== false), array(true, true));
+check('legacy mobile rule unchanged', strpos($utcss, '.brxe-immoadmin-units-table .immoadmin-table-cell[data-mobile-visible="0"] {' . "\n" . '            display: none !important;') !== false, true);
+
+section('breakpoints: normalize');
+$def = $UT::normalize_breakpoints($UT::default_breakpoints());
+check('defaults: widest first, desktop base', array_map(function ($b) { return $b['key'] . ':' . $b['width'] . ($b['base'] ? ':base' : ''); }, $def),
+    array('desktop:1279:base', 'tablet_portrait:991', 'mobile_landscape:767', 'mobile_portrait:478'));
+check('site_breakpoints() without Bricks\\Breakpoints = defaults', $UT::site_breakpoints(), $def);
+$mixed = $UT::normalize_breakpoints(array(
+    array('key' => 'mobile_portrait', 'label' => 'Mobil', 'width' => '478'),
+    array('key' => 'xl', 'label' => 'XL', 'width' => 1600, 'custom' => true, 'paused' => true),
+    array('key' => 'desktop', 'label' => 'Desktop', 'width' => 1279),
+    array('key' => 'dup', 'label' => 'Dup', 'width' => 478),
+    array('key' => '', 'width' => 300),
+    array('key' => 'nowidth', 'label' => 'x'),
+    'junk',
+    array('key' => 'tablet', 'width' => 991),
+));
+check('paused / duplicate width / no key / no width dropped; no base flag → desktop; label falls back to key', array_map(function ($b) { return $b['key'] . ':' . $b['label'] . ($b['base'] ? ':base' : ''); }, $mixed),
+    array('desktop:Desktop:base', 'tablet:tablet', 'mobile_portrait:Mobil'));
+check('not an array → []', $UT::normalize_breakpoints('x'), array());
+
+$range_txt = function ($bps) use ($UT) {
+    $out = array();
+    foreach ($UT::breakpoint_ranges($bps) as $k => $r) {
+        $out[$k] = ($r['lo'] ? $r['lo']['op'] . $r['lo']['w'] : '-inf') . ' .. ' . ($r['hi'] ? $r['hi']['op'] . $r['hi']['w'] : '+inf');
+    }
+    return $out;
+};
+
+section('breakpoints: ranges — desktop-first (Bricks default)');
+check('each breakpoint = its own band only', $range_txt($def), array(
+    'desktop'          => 'max991 .. +inf',
+    'tablet_portrait'  => 'max767 .. max991',
+    'mobile_landscape' => 'max478 .. max767',
+    'mobile_portrait'  => '-inf .. max478',
+));
+check('options show the band', $UT::breakpoint_options($def), array(
+    'desktop' => 'Desktop (ab 992 px)', 'tablet_portrait' => 'Tablet hochkant (768–991 px)',
+    'mobile_landscape' => 'Handy quer (479–767 px)', 'mobile_portrait' => 'Handy hochkant (bis 478 px)'));
+
+section('breakpoints: ranges — mobile-first (smallest = base)');
+$mf = $UT::normalize_breakpoints(array(
+    array('key' => 'desktop', 'label' => 'Desktop', 'width' => 1280),
+    array('key' => 'tablet', 'label' => 'Tablet', 'width' => 768),
+    array('key' => 'mobile', 'label' => 'Mobil', 'width' => 360, 'base' => true),
+    array('key' => 'laptop', 'label' => 'Laptop', 'width' => 1024, 'custom' => true),
+));
+check('base = mobile', array_values(array_filter(array_map(function ($b) { return $b['base'] ? $b['key'] : null; }, $mf))), array('mobile'));
+check('min-width bands', $range_txt($mf), array(
+    'desktop' => 'min1280 .. +inf',
+    'laptop'  => 'min1024 .. min1280',
+    'tablet'  => 'min768 .. min1024',
+    'mobile'  => '-inf .. min768',
+));
+check('options', $UT::breakpoint_options($mf), array(
+    'desktop' => 'Desktop (ab 1280 px)', 'laptop' => 'Laptop (1024–1279 px)', 'tablet' => 'Tablet (768–1023 px)', 'mobile' => 'Mobil (bis 767 px)'));
+
+section('breakpoints: ranges — custom desktop-first + hybrid base');
+$cu = $UT::normalize_breakpoints(array(
+    array('key' => 'desktop', 'label' => 'Desktop', 'width' => 1279, 'base' => true),
+    array('key' => 'tablet_landscape', 'label' => 'Tablet quer', 'width' => 1199, 'custom' => true),
+    array('key' => 'tablet_portrait', 'label' => 'Tablet', 'width' => 991),
+    array('key' => 'mobile_portrait', 'label' => 'Mobil', 'width' => 478),
+));
+check('custom breakpoint gets its own band, neighbours shrink', $range_txt($cu), array(
+    'desktop' => 'max1199 .. +inf', 'tablet_landscape' => 'max991 .. max1199', 'tablet_portrait' => 'max478 .. max991', 'mobile_portrait' => '-inf .. max478'));
+$hy = $UT::normalize_breakpoints(array(
+    array('key' => 'wide', 'label' => 'Wide', 'width' => 1440),
+    array('key' => 'desktop', 'label' => 'Desktop', 'width' => 1279, 'base' => true),
+    array('key' => 'mobile', 'label' => 'Mobil', 'width' => 767),
+));
+check('hybrid (base in the middle): wider = min-width, narrower = max-width', $range_txt($hy), array(
+    'wide' => 'min1440 .. +inf', 'desktop' => 'max767 .. min1440', 'mobile' => '-inf .. max767'));
+check('single breakpoint = all widths', $UT::breakpoint_options($UT::normalize_breakpoints(array(array('key' => 'desktop', 'label' => 'D', 'width' => 1279)))), array('desktop' => 'D (alle Breiten)'));
+check('labels are escaped', $UT::breakpoint_options($UT::normalize_breakpoints(array(array('key' => 'desktop', 'label' => 'D<b>', 'width' => 1279)))), array('desktop' => 'D&lt;b&gt; (alle Breiten)'));
+
+section('breakpoints: sanitize "Ausblenden auf"');
+check('unknown keys dropped, breakpoint order, unique', $UT::sanitize_hide_on(array('mobile_portrait', 'bogus', 'tablet_portrait', 'mobile_portrait', array('x'), '<script>'), $def), array('tablet_portrait', 'mobile_portrait'));
+check('single string accepted', $UT::sanitize_hide_on('desktop', $def), array('desktop'));
+check('garbage → []', array($UT::sanitize_hide_on(null, $def), $UT::sanitize_hide_on(5, $def), $UT::sanitize_hide_on(array(), $def)), array(array(), array(), array()));
+
+section('breakpoints: scoped CSS');
+$F = 'minmax(min-content, 1fr)';
+$tr = array(0 => $F, 1 => $F, 2 => 'max-content', 3 => $F);
+$tbl = function ($scope) { return "{$scope} > .immoadmin-table,{$scope} > .immoadmin-table-scroll > .immoadmin-table"; };
+$hide_sel = function ($scope, $idx) {
+    $out = array();
+    foreach (array("{$scope} > .immoadmin-table", "{$scope} > .immoadmin-table-scroll > .immoadmin-table") as $t) {
+        $out[] = "{$t} > .immoadmin-table-header > .immoadmin-table-cell-header[data-col-index=\"{$idx}\"]";
+        $out[] = "{$t} > .immoadmin-table-row > .immoadmin-table-cell[data-col-index=\"{$idx}\"]";
+        $out[] = "{$t} > .accordion-item > .immoadmin-table-row > .immoadmin-table-cell[data-col-index=\"{$idx}\"]";
+    }
+    return implode(',', $out);
+};
+check('nothing hidden → no CSS', $UT::column_visibility_css('.brxe-x', $tr, array(), array(), $def), '');
+check('tablet only: hides in (767, 991] only — phones keep the column', $UT::column_visibility_css('.brxe-x', $tr, array(1 => array('tablet_portrait')), array(), $def),
+    "@media (min-width: 767.02px) and (max-width: 991px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} max-content {$F}}" . $hide_sel('.brxe-x', 1) . '{display:none !important}}');
+check('tablet + both phones: adjacent bands merged into one query', $UT::column_visibility_css('.brxe-x', $tr, array(1 => array('tablet_portrait', 'mobile_landscape', 'mobile_portrait')), array(), $def),
+    "@media (max-width: 991px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} max-content {$F}}" . $hide_sel('.brxe-x', 1) . '{display:none !important}}');
+check('two columns, different bands: correct tracks per band', explode("\n", $UT::column_visibility_css('.brxe-x', $tr, array(0 => array('desktop'), 3 => array('desktop', 'mobile_portrait')), array(), $def)), array(
+    "@media (max-width: 478px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} {$F} max-content}" . $hide_sel('.brxe-x', 3) . '{display:none !important}}',
+    "@media (min-width: 991.02px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} max-content}" . $hide_sel('.brxe-x', 0) . ',' . $hide_sel('.brxe-x', 3) . '{display:none !important}}',
+));
+check('every breakpoint → plain rule, no media query', $UT::column_visibility_css('.brxe-x', $tr, array(2 => array('desktop', 'tablet_portrait', 'mobile_landscape', 'mobile_portrait')), array(), $def),
+    "" . $tbl('.brxe-x') . "{grid-template-columns:{$F} {$F} {$F}}" . $hide_sel('.brxe-x', 2) . '{display:none !important}');
+check('all columns hidden → full template kept (like the mobile grid)', strpos($UT::column_visibility_css('.brxe-x', array(0 => $F), array(0 => array('desktop')), array(), $def), "grid-template-columns:{$F}}") !== false, true);
+check('mobile-first: base = below 768, min-width bands', explode("\n", $UT::column_visibility_css('.brxe-x', $tr, array(1 => array('mobile'), 2 => array('laptop')), array(), $mf)), array(
+    "@media (max-width: 767.98px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} max-content {$F}}" . $hide_sel('.brxe-x', 1) . '{display:none !important}}',
+    "@media (min-width: 1024px) and (max-width: 1279.98px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} {$F} {$F}}" . $hide_sel('.brxe-x', 2) . '{display:none !important}}',
+));
+// Legacy column 2 (mobile_visible off) is hidden ≤767px by the static CSS;
+// where a breakpoint band overlaps that, the grid must drop it as well.
+check('mixed with a legacy mobile_visible column: legacy track dropped ≤767 only', explode("\n", $UT::column_visibility_css('.brxe-x', $tr, array(1 => array('tablet_portrait', 'mobile_landscape')), array(2), $def)), array(
+    "@media (min-width: 478.02px) and (max-width: 767px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} {$F}}" . $hide_sel('.brxe-x', 1) . '{display:none !important}}',
+    "@media (min-width: 767.02px) and (max-width: 991px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} max-content {$F}}" . $hide_sel('.brxe-x', 1) . '{display:none !important}}',
+));
+check('mobile-first + legacy: extra 767 cut splits the base band', explode("\n", $UT::column_visibility_css('.brxe-x', $tr, array(1 => array('mobile')), array(2), $mf)), array(
+    "@media (max-width: 767px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} {$F}}" . $hide_sel('.brxe-x', 1) . '{display:none !important}}',
+    "@media (min-width: 767.02px) and (max-width: 767.98px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} max-content {$F}}" . $hide_sel('.brxe-x', 1) . '{display:none !important}}',
+));
+check('unknown key in hide_on map is ignored by the CSS builder', $UT::column_visibility_css('.brxe-x', $tr, array(1 => array('bogus')), array(), $def), '');
+
+section('units-table v2.15.3: render with "Ausblenden auf"');
+$vc = new ImmoAdmin_Units_Table(array('id' => 'vc1', 'settings' => array()));
+$vc->set_control_groups(); $vc->set_controls();
+$hf = $vc->controls['columns']['fields']['hide_on_breakpoints'] ?? array();
+check('column field: multi-select, no default, options from breakpoints', array($hf['type'] ?? null, $hf['multiple'] ?? null, array_key_exists('default', $hf), array_keys($hf['options'] ?? array())),
+    array('select', true, false, array('desktop', 'tablet_portrait', 'mobile_landscape', 'mobile_portrait')));
+check('column field label', $hf['label'] ?? null, 'Ausblenden auf');
+$field_keys = array_keys($vc->controls['columns']['fields']);
+check('column field: sits right after mobile_visible', array_slice($field_keys, array_search('mobile_visible', $field_keys, true), 2), array('mobile_visible', 'hide_on_breakpoints'));
+check('mobile_visible keeps default true, info explains precedence', array($vc->controls['columns']['fields']['mobile_visible']['default'], strpos($vc->controls['columns']['fields']['mobile_visible']['info'], 'Ausblenden auf') !== false), array(true, true));
+check('preset columns carry no hide_on (new widgets behave as before)', count(array_filter($cols, function ($c) { return isset($c['hide_on_breakpoints']); })), 0);
+
+$vcases = immoadmin_test_table_cases();
+$strip_style = function ($html) { return preg_replace('#<style>.*?</style>#s', '', $html); };
+$styles = function ($html) { preg_match_all('#<style>(.*?)</style>#s', $html, $m); return $m[1]; };
+
+$empty_hide = $vcases['accordion-preset'];
+$empty_hide['columns'][1]['hide_on_breakpoints'] = array();
+$empty_hide['columns'][4]['hide_on_breakpoints'] = array('bogus', 'tablet_landscape');
+check('empty / only-unknown hide_on → byte-identical to baseline (legacy path)', immoadmin_test_render_table($empty_hide), $baseline['accordion-preset']);
+
+$top_hide = $vcases['accordion-preset'];
+$top_hide['columns'][0]['hide_on_breakpoints'] = array('mobile_portrait');
+$th = immoadmin_test_render_table($top_hide);
+check('mobile-visible column + hide_on: only difference is the <style>', $strip_style($th), $baseline['accordion-preset']);
+check('<style> is the first child of the root (builder keeps firstElementChild)', preg_match('#^<div [^>]*><style>#', $th), 1);
+check('one style block, scoped to .brxe-tbl777', array(count($styles($th)), strpos($styles($th)[0] ?? '', '@media (max-width: 478px){' . $tbl('.brxe-tbl777') . '{') === 0), array(1, true));
+
+// Stockwerk (1) is mobile_visible=false in the preset → both apply (union):
+// hidden ≤767 by the legacy rule AND on the tablet band by "Ausblenden auf".
+$stock = $vcases['accordion-preset'];
+$stock['columns'][1]['hide_on_breakpoints'] = array('tablet_portrait', 'bogus');
+$sh = immoadmin_test_render_table($stock);
+$rows_rendered = preg_match_all('/data-unit-id="\d+"/', $sh);
+check('union: legacy flag kept — header + every row stay data-mobile-visible="0"', array(
+    substr_count($sh, 'data-mobile-visible="0" data-col-index="1"'),
+    substr_count($sh, 'data-mobile-visible="1" data-col-index="1"'),
+), array(1 + $rows_rendered, 0));
+check('union: markup apart from the <style> byte-identical to baseline (flag + mobile grid vars unchanged)', $strip_style($sh), $baseline['accordion-preset']);
+$sstyle = $styles($sh)[0] ?? '';
+check('union: tablet band hides Stockwerk; ≤767 left to the legacy rule (no extra band)', $sstyle,
+    '@media (min-width: 767.02px) and (max-width: 991px){' . $tbl('.brxe-tbl777') . '{grid-template-columns:' . implode(' ', array_fill(0, 8, $F)) . ' max-content max-content}'
+    . $hide_sel('.brxe-tbl777', 1) . '{display:none !important}}');
+check('accordion panels still rendered', substr_count($sh, 'class="immoadmin-accordion-panel"'), substr_count($baseline['accordion-preset'], 'class="immoadmin-accordion-panel"'));
+// Same column also hidden on desktop: union across both sources per band.
+check('union in the CSS builder: legacy column + own band, grid drops both where they overlap', explode("\n", $UT::column_visibility_css('.brxe-x', $tr, array(2 => array('mobile_landscape', 'desktop')), array(1, 2), $def)), array(
+    "@media (min-width: 478.02px) and (max-width: 767px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} {$F}}" . $hide_sel('.brxe-x', 2) . '{display:none !important}}',
+    "@media (min-width: 991.02px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} {$F} {$F}}" . $hide_sel('.brxe-x', 2) . '{display:none !important}}',
+));
+
+section('units-table v2.15.3: selectors only reach this table');
+// Every selector must be a pure child-combinator chain from the root, so a
+// units table nested in an accordion panel (root > table > accordion-item >
+// panel > … > nested root > table) can never match.
+$all_sel = array();
+foreach (array($sstyle, $UT::column_visibility_css('.brxe-x', $tr, array(1 => array('desktop'), 3 => array('mobile_portrait')), array(2), $def)) as $css_text) {
+    preg_match_all('/(?:^|[{}])([^{}@][^{}]*)\{/', $css_text, $sm);
+    foreach ($sm[1] as $group) { foreach (explode(',', $group) as $sel) { $sel = trim($sel); if ($sel !== '' && $sel[0] !== '@') { $all_sel[] = $sel; } } }
+}
+check('selectors collected', count($all_sel) > 10, true);
+check('every selector = root > child > child … (no descendant combinator)', array_values(array_filter($all_sel, function ($sel) {
+    return !preg_match('/^\.brxe-[A-Za-z0-9_-]+( > [.A-Za-z0-9_\[\]="-]+)+$/', $sel);
+})), array());
+// Simulate the DOM paths: own cells match, a nested table's cells don't.
+$matches = function ($sel, array $path) {
+    $parts = explode(' > ', $sel);
+    if (count($parts) !== count($path)) { return false; }
+    foreach ($parts as $i => $part) {
+        preg_match_all('/\.([A-Za-z0-9_-]+)|\[([a-z-]+)="([^"]*)"\]/', $part, $mm, PREG_SET_ORDER);
+        foreach ($mm as $m) {
+            if (!empty($m[1]) && !in_array($m[1], $path[$i]['class'], true)) { return false; }
+            if (!empty($m[2]) && ($path[$i]['attr'][$m[2]] ?? null) !== $m[3]) { return false; }
+        }
+    }
+    return true;
+};
+$node = function ($classes, $attr = array()) { return array('class' => explode(' ', $classes), 'attr' => $attr); };
+$root = $node('brxe-x brxe-immoadmin-units-table'); $table = $node('immoadmin-table');
+$cell1 = $node('immoadmin-table-cell', array('data-col-index' => '1'));
+$own_paths = array(
+    array($root, $table, $node('immoadmin-table-header'), $node('immoadmin-table-cell-header', array('data-col-index' => '1'))),
+    array($root, $table, $node('accordion-item immoadmin-table-rowgroup'), $node('immoadmin-table-row accordion-title-wrapper'), $cell1),
+    array($root, $table, $node('immoadmin-table-row'), $cell1),
+    array($root, $node('immoadmin-table-scroll'), $table, $node('accordion-item'), $node('immoadmin-table-row'), $cell1),
+);
+$nested = array($root, $table, $node('accordion-item'), $node('immoadmin-accordion-panel'), $node('brxe-block'),
+    $node('brxe-y brxe-immoadmin-units-table'), $table, $node('immoadmin-table-row'), $cell1);
+$col1_sel = array_values(array_filter($all_sel, function ($sel) { return strpos($sel, '[data-col-index="1"]') !== false && strpos($sel, '.brxe-x') === 0; }));
+check('own header + cells (plain / accordion / scroll) are matched', array_map(function ($p) use ($col1_sel, $matches) {
+    foreach ($col1_sel as $sel) { if ($matches($sel, $p)) { return true; } } return false;
+}, $own_paths), array(true, true, true, true));
+check('nested table inside the accordion panel is NOT matched', count(array_filter($col1_sel, function ($sel) use ($matches, $nested) {
+    // also try every suffix of the path — a descendant combinator would allow that
+    for ($i = 0; $i < 9; $i++) { if ($matches($sel, array_slice($nested, $i))) { return true; } } return false;
+})), 0);
+check('grid rule also child-only: no ".brxe-x .immoadmin-table" descendant form', preg_match('/[^>] \.immoadmin-table/', implode(',', $all_sel)), 0);
+
+section('units-table v2.15.3: classic media queries (old Safari)');
+check('no Level-4 range syntax anywhere', preg_match('/\(width\s*[<>]/', $sstyle . $UT::column_visibility_css('.brxe-x', $tr, array(1 => array('laptop', 'mobile')), array(2), $mf)), 0);
+check('exclusive bounds use .02 offsets, mobile-first upper bounds .98', explode("\n", $UT::column_visibility_css('.brxe-x', $tr, array(1 => array('laptop')), array(), $mf))[0] ?? '',
+    "@media (min-width: 1024px) and (max-width: 1279.98px){" . $tbl('.brxe-x') . "{grid-template-columns:{$F} max-content {$F}}" . $hide_sel('.brxe-x', 1) . '{display:none !important}}');
+$prev_locale = setlocale(LC_NUMERIC, 0);
+foreach (array('de_DE.UTF-8', 'de_AT.UTF-8', 'de_DE') as $loc) { if (setlocale(LC_NUMERIC, $loc)) { break; } }
+check('decimal point, never a locale comma', strpos($UT::column_visibility_css('.brxe-x', $tr, array(1 => array('tablet_portrait')), array(), $def), '(min-width: 767.02px) and (max-width: 991px)') !== false, true);
+setlocale(LC_NUMERIC, $prev_locale);
+
+$hs = $vcases['accordion-hide-scroll'];
+$hs['columns'][2]['hide_on_breakpoints'] = array('mobile_landscape', 'mobile_portrait');
+$hsh = immoadmin_test_render_table($hs, 'tb"l<x>1');
+// Legacy case: "Preis" (1) has no mobile_visible → still hidden ≤767 by the
+// static rule, so the phone band keeps only "Top" (0).
+check('id sanitised in the scope, nothing unescaped', array($styles($hsh), strpos($hsh, '<x>') === false), array(array(
+    '@media (max-width: 767px){' . $tbl('.brxe-tblx1') . '{grid-template-columns:max-content}' . $hide_sel('.brxe-tblx1', 2) . '{display:none !important}}'), true));
+check('horizontal scroll: style before the scroll wrapper, max-content tracks', preg_match('#^<div [^>]*><style>.*?</style><div class="immoadmin-table-scroll"#s', $hsh), 1);
+
+// Custom (mobile-first) breakpoints coming from Bricks itself.
+eval('namespace Bricks; class Breakpoints { public static $breakpoints = []; public static $is_mobile_first = true; }');
+\Bricks\Breakpoints::$breakpoints = array(
+    array('key' => 'mobile', 'label' => 'Mobil', 'width' => 360, 'base' => true),
+    array('key' => 'tablet', 'label' => 'Tablet', 'width' => 768),
+    array('key' => 'big', 'label' => 'Groß', 'width' => 1500, 'custom' => true, 'paused' => true),
+    array('key' => 'desktop', 'label' => 'Desktop', 'width' => 1200),
+);
+check('Bricks breakpoints read (paused dropped), mobile-first', array_map(function ($b) { return $b['key'] . ($b['base'] ? ':base' : ''); }, $UT::site_breakpoints()), array('desktop', 'tablet', 'mobile:base'));
+$cc = new ImmoAdmin_Units_Table(array('id' => 'cc1', 'settings' => array()));
+$cc->set_control_groups(); $cc->set_controls();
+check('dropdown follows the site breakpoints', $cc->controls['columns']['fields']['hide_on_breakpoints']['options'], array(
+    'desktop' => 'Desktop (ab 1200 px)', 'tablet' => 'Tablet (768–1199 px)', 'mobile' => 'Mobil (bis 767 px)'));
+$mfc = $vcases['table-legacy-dim'];
+$mfc['columns'][2]['hide_on_breakpoints'] = array('tablet', 'tablet_portrait', 'big');
+check('mobile-first render: tablet band only; default + paused keys ignored', $styles(immoadmin_test_render_table($mfc)), array(
+    "@media (min-width: 768px) and (max-width: 1199.98px){" . $tbl('.brxe-tbl777') . "{grid-template-columns:{$F} {$F}}" . $hide_sel('.brxe-tbl777', 2) . '{display:none !important}}'));
+$bad_only = $vcases['table-legacy-dim'];
+$bad_only['columns'][0]['hide_on_breakpoints'] = array('mobile_portrait'); // default key, not on this site
+check('key valid only for the default set → ignored on a custom site (byte-identical)', immoadmin_test_render_table($bad_only), $baseline['table-legacy-dim']);
+\Bricks\Breakpoints::$breakpoints = array();
+check('empty Bricks list, before init → defaults', $UT::site_breakpoints(), $def);
+
 // cleanup temp dir
 @unlink(IMMOADMIN_MEDIA_DIR . 'abc123-plan.png');
 @rmdir(IMMOADMIN_MEDIA_DIR);

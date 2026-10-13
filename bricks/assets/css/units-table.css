@@ -328,19 +328,26 @@
         font-weight: 600;
         line-height: 1;
         background-color: var(--iat-color-available);
-        color: #fff;
+        /* Text colour per status (v2.15.3, "… – Textfarbe" controls). Unset
+         * vars fall back to #fff = the look before the controls existed. */
+        color: var(--iat-text-available, #fff);
     }
     :where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-available {
         background-color: var(--iat-color-available);
+        color: var(--iat-text-available, #fff);
     }
     :where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-reserved {
         background-color: var(--iat-color-reserved);
+        color: var(--iat-text-reserved, #fff);
     }
     :where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-sold {
         background-color: var(--iat-color-sold);
+        color: var(--iat-text-sold, #fff);
     }
+    /* Rented falls back to the sold colours, background and text alike. */
     :where(.brxe-immoadmin-units-table) .immoadmin-status-badge.is-rented {
         background-color: var(--iat-color-rented, var(--iat-color-sold));
+        color: var(--iat-text-rented, var(--iat-text-sold, #fff));
     }
 
     /* Status dot — just a colored circle, no text. Color via .is-{status} */
@@ -380,7 +387,9 @@
         text-decoration: underline;
     }
 
-    /* Empty value placeholder — designer-targetable (gray by default). */
+    /* Empty value placeholder — designer-targetable (gray by default).
+     * The "Leere Zellen" colour control (v2.15.3) sets color AND opacity:1
+     * in Bricks' per-element CSS, so a picked colour shows unfaded. */
     :where(.brxe-immoadmin-units-table) .immoadmin-cell-empty {
         color: var(--bricks-text-medium, #94a3b8);
         opacity: 0.6;
@@ -437,7 +446,9 @@
 
     @media (max-width: 767px) {
         /* Hide both header AND data cells of a column when the column is
-         * flagged mobile_visible=false. We list both selectors explicitly
+         * flagged mobile_visible=false. ("Ausblenden auf", v2.15.3, adds
+         * the element's own scoped <style> on top; that one also re-templates
+         * the grid wherever both apply.) We list both selectors explicitly
          * (instead of relying on a bare [data-mobile-visible="0"]) so any
          * Bricks-generated per-instance styles targeting
          * `.immoadmin-table-cell-header` can't accidentally outrank the rule

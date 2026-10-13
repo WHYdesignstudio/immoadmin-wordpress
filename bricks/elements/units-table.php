@@ -276,8 +276,21 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                     'label'   => esc_html__('Auf Mobil sichtbar', 'immoadmin'),
                     'type'    => 'checkbox',
                     'default' => true,
+                    'info'    => esc_html__('Ausgeschaltet = Spalte unter 768 px ausblenden. Gilt zusammen mit „Ausblenden auf“.', 'immoadmin'),
                     'inline'  => true,
                     'small'   => true,
+                ],
+                // v2.15.3. No default on purpose: an empty value keeps the
+                // exact mobile_visible behaviour (and markup) from before.
+                // Both apply together (union) — see render().
+                'hide_on_breakpoints' => [
+                    'label'       => esc_html__('Ausblenden auf', 'immoadmin'),
+                    'type'        => 'select',
+                    'options'     => self::breakpoint_options(self::site_breakpoints()),
+                    'multiple'    => true,
+                    'clearable'   => true,
+                    'placeholder' => esc_html__('Nie ausblenden', 'immoadmin'),
+                    'info'        => esc_html__('Breakpoints aus den Bricks-Einstellungen. Jeder gilt nur für seinen Bereich: „Tablet“ blendet am Handy nicht aus, dafür auch die Handy-Breakpoints wählen. Gilt zusammen mit „Auf Mobil sichtbar“.', 'immoadmin'),
                 ],
                 'compact' => [
                     'label'   => esc_html__('Kompakt (auto-Breite)', 'immoadmin'),
@@ -625,6 +638,27 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ],
         ];
 
+        // Badge text colours (v2.15.3). No defaults: the CSS falls back to
+        // #fff, so badges on existing pages keep their white text.
+        // "Vermietet" falls back to "Verkauft", like the background does.
+        $text_colors = [
+            'available' => esc_html__('Verfügbar – Textfarbe', 'immoadmin'),
+            'reserved'  => esc_html__('Reserviert – Textfarbe', 'immoadmin'),
+            'sold'      => esc_html__('Verkauft – Textfarbe', 'immoadmin'),
+            'rented'    => esc_html__('Vermietet – Textfarbe', 'immoadmin'),
+        ];
+        foreach ($text_colors as $status => $label) {
+            $this->controls['text_color_' . $status] = [
+                'tab'   => 'style',
+                'group' => 'table_style',
+                'label' => $label,
+                'type'  => 'color',
+                'css'   => [
+                    ['property' => '--iat-text-' . $status],
+                ],
+            ];
+        }
+
         $this->controls['dot_size'] = [
             'tab'         => 'style',
             'group'       => 'table_style',
@@ -639,6 +673,84 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                     'property' => '--iat-dot-size',
                     'selector' => '',
                 ],
+            ],
+        ];
+
+        // ========== Style: Status-Badge (v2.15.3) ==========
+        $this->controls['sep_badge'] = [
+            'tab'   => 'style',
+            'group' => 'table_style',
+            'type'  => 'separator',
+            'label' => esc_html__('Status-Badge', 'immoadmin'),
+        ];
+
+        // Colour excluded: the text colour is set per status above, and one
+        // typography colour would silently override all four.
+        $this->controls['badge_typography'] = [
+            'tab'     => 'style',
+            'group'   => 'table_style',
+            'label'   => esc_html__('Typografie', 'immoadmin'),
+            'type'    => 'typography',
+            'exclude' => ['color'],
+            'css'     => [
+                ['property' => 'font', 'selector' => '.immoadmin-status-badge'],
+            ],
+        ];
+
+        $this->controls['badge_padding'] = [
+            'tab'   => 'style',
+            'group' => 'table_style',
+            'label' => esc_html__('Padding', 'immoadmin'),
+            'type'  => 'spacing',
+            'css'   => [
+                ['property' => 'padding', 'selector' => '.immoadmin-status-badge'],
+            ],
+        ];
+
+        $this->controls['badge_border_radius'] = [
+            'tab'         => 'style',
+            'group'       => 'table_style',
+            'label'       => esc_html__('Border-Radius', 'immoadmin'),
+            'type'        => 'number',
+            'units'       => true,
+            'placeholder' => '4px',
+            'css'         => [
+                ['property' => 'border-radius', 'selector' => '.immoadmin-status-badge'],
+            ],
+        ];
+
+        // ========== Style: Leere Zellen (v2.15.3) ==========
+        $this->controls['sep_empty'] = [
+            'tab'   => 'style',
+            'group' => 'table_style',
+            'type'  => 'separator',
+            'label' => esc_html__('Leere Zellen (Platzhalter „—“)', 'immoadmin'),
+        ];
+
+        // The default placeholder is grey at opacity 0.6. A picked colour
+        // also resets the opacity (Bricks' fixed 'value' — only emitted when
+        // the colour is set), so the dash shows exactly the chosen colour;
+        // for a faded look pick a colour with transparency.
+        $this->controls['empty_color'] = [
+            'tab'   => 'style',
+            'group' => 'table_style',
+            'label' => esc_html__('Farbe', 'immoadmin'),
+            'type'  => 'color',
+            'css'   => [
+                ['property' => 'color', 'selector' => '.immoadmin-cell-empty'],
+                ['property' => 'opacity', 'selector' => '.immoadmin-cell-empty', 'value' => '1'],
+            ],
+        ];
+
+        // Colour excluded so it can't bypass the opacity reset above.
+        $this->controls['empty_typography'] = [
+            'tab'     => 'style',
+            'group'   => 'table_style',
+            'label'   => esc_html__('Typografie', 'immoadmin'),
+            'type'    => 'typography',
+            'exclude' => ['color'],
+            'css'     => [
+                ['property' => 'font', 'selector' => '.immoadmin-cell-empty'],
             ],
         ];
 
@@ -1336,6 +1448,411 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
     }
 
     // -----------------------------------------------------------------
+    // COLUMN VISIBILITY PER BREAKPOINT (v2.15.3)
+    // -----------------------------------------------------------------
+
+    /**
+     * Bricks' default breakpoints (Breakpoints::get_default_breakpoints() in
+     * 2.3.9) — used when Bricks' class isn't there or returns nothing.
+     */
+    public static function default_breakpoints() {
+        return [
+            ['key' => 'desktop',          'label' => esc_html__('Desktop', 'immoadmin'),         'width' => 1279, 'base' => true],
+            ['key' => 'tablet_portrait',  'label' => esc_html__('Tablet hochkant', 'immoadmin'), 'width' => 991],
+            ['key' => 'mobile_landscape', 'label' => esc_html__('Handy quer', 'immoadmin'),      'width' => 767],
+            ['key' => 'mobile_portrait',  'label' => esc_html__('Handy hochkant', 'immoadmin'),  'width' => 478],
+        ];
+    }
+
+    /**
+     * The site's breakpoints (default + custom), normalised.
+     *
+     * Prefers Breakpoints::$breakpoints, which Bricks fills on `init`;
+     * calls get_breakpoints() only after `init` — it runs esc_html__() and
+     * would load translations too early otherwise.
+     */
+    public static function site_breakpoints() {
+        $raw = [];
+        if (class_exists('\\Bricks\\Breakpoints')) {
+            if (property_exists('\\Bricks\\Breakpoints', 'breakpoints') && !empty(\Bricks\Breakpoints::$breakpoints)) {
+                $raw = \Bricks\Breakpoints::$breakpoints;
+            } elseif (method_exists('\\Bricks\\Breakpoints', 'get_breakpoints') && function_exists('did_action') && did_action('init')) {
+                $raw = \Bricks\Breakpoints::get_breakpoints();
+            }
+        }
+
+        $list = self::normalize_breakpoints($raw);
+        return !empty($list) ? $list : self::normalize_breakpoints(self::default_breakpoints());
+    }
+
+    /**
+     * Pure: raw Bricks breakpoint list → [['key','label','width','base'], …],
+     * widest first, exactly one base.
+     *
+     * Mirrors Bricks 2.3.9: paused breakpoints produce no CSS
+     * (Assets::generate_inline_css_for_breakpoints skips them), so they are
+     * dropped here — their range belongs to the neighbour. Base = the last
+     * entry flagged 'base', else 'desktop' (Breakpoints::get_breakpoints());
+     * else the widest one. Entries without key / width, or repeating a key
+     * or width, are dropped.
+     */
+    public static function normalize_breakpoints($raw) {
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $list   = [];
+        $keys   = [];
+        $widths = [];
+        $base   = null;
+        foreach ($raw as $bp) {
+            if (!is_array($bp)) {
+                continue;
+            }
+            $key   = isset($bp['key']) && is_scalar($bp['key']) ? trim((string) $bp['key']) : '';
+            $width = isset($bp['width']) && is_numeric($bp['width']) ? (int) $bp['width'] : 0;
+            $flag  = isset($bp['base']) && $bp['base'] !== false;
+            if ($key === '' || $width <= 0 || isset($keys[$key]) || isset($widths[$width])) {
+                continue;
+            }
+            if (isset($bp['paused']) && !$flag) {
+                continue;
+            }
+            $label = isset($bp['label']) && is_scalar($bp['label']) && trim((string) $bp['label']) !== ''
+                ? (string) $bp['label']
+                : $key;
+
+            $keys[$key]     = true;
+            $widths[$width] = true;
+            $list[] = ['key' => $key, 'label' => $label, 'width' => $width, 'base' => false];
+            if ($flag) {
+                $base = $key;
+            }
+        }
+        if (empty($list)) {
+            return [];
+        }
+
+        usort($list, function ($a, $b) {
+            return $b['width'] <=> $a['width'];
+        });
+
+        if ($base === null) {
+            $base = isset($keys['desktop']) ? 'desktop' : $list[0]['key'];
+        }
+        foreach ($list as $i => $bp) {
+            $list[$i]['base'] = ($bp['key'] === $base);
+        }
+
+        return $list;
+    }
+
+    /**
+     * Pure: the width range in which each breakpoint is the active one.
+     *
+     * Same rule Bricks uses to write breakpoint CSS (Assets 2.3.9: wider
+     * than base → min-width, narrower → max-width, base → no media query):
+     *
+     *  - narrower than base, e.g. desktop-first 991 / 767 / 478:
+     *      991 → (767, 991], 767 → (478, 767], 478 → (−∞, 478]
+     *  - wider than base, e.g. mobile-first base 0 + 768 / 1024:
+     *      768 → [768, 1024), 1024 → [1024, ∞)
+     *  - base → between the two: desktop-first (991, ∞), mobile-first
+     *      (−∞, 768). Hybrid set-ups (base in the middle) work the same way.
+     *
+     * So each breakpoint covers ONLY its own band — "tablet" does not
+     * include the phones below it.
+     *
+     * A bound is a "cut" ['w' => px, 'op' => 'max'|'min']: 'max' = W belongs
+     * to the band below (max-width: W), 'min' = W belongs to the band above
+     * (min-width: W). null = open end.
+     *
+     * @param array $breakpoints normalize_breakpoints() output.
+     * @return array key => ['lo' => cut|null, 'hi' => cut|null]
+     */
+    public static function breakpoint_ranges(array $breakpoints) {
+        $base = null;
+        foreach ($breakpoints as $bp) {
+            if (!empty($bp['base'])) {
+                $base = $bp;
+                break;
+            }
+        }
+        if ($base === null) {
+            return [];
+        }
+
+        $below = []; // max-width breakpoints, widest first
+        $above = []; // min-width breakpoints, narrowest first
+        foreach ($breakpoints as $bp) {
+            if ($bp['key'] === $base['key']) {
+                continue;
+            }
+            if ($bp['width'] > $base['width']) {
+                $above[] = $bp;
+            } else {
+                $below[] = $bp;
+            }
+        }
+        usort($below, function ($a, $b) { return $b['width'] <=> $a['width']; });
+        usort($above, function ($a, $b) { return $a['width'] <=> $b['width']; });
+
+        $ranges = [];
+        foreach ($below as $i => $bp) {
+            $ranges[$bp['key']] = [
+                'lo' => isset($below[$i + 1]) ? ['w' => $below[$i + 1]['width'], 'op' => 'max'] : null,
+                'hi' => ['w' => $bp['width'], 'op' => 'max'],
+            ];
+        }
+        foreach ($above as $i => $bp) {
+            $ranges[$bp['key']] = [
+                'lo' => ['w' => $bp['width'], 'op' => 'min'],
+                'hi' => isset($above[$i + 1]) ? ['w' => $above[$i + 1]['width'], 'op' => 'min'] : null,
+            ];
+        }
+        $ranges[$base['key']] = [
+            'lo' => !empty($below) ? ['w' => $below[0]['width'], 'op' => 'max'] : null,
+            'hi' => !empty($above) ? ['w' => $above[0]['width'], 'op' => 'min'] : null,
+        ];
+
+        // Widest band first, like the builder's breakpoint bar.
+        $ordered = [];
+        foreach ($breakpoints as $bp) {
+            if (isset($ranges[$bp['key']])) {
+                $ordered[$bp['key']] = $ranges[$bp['key']];
+            }
+        }
+        return $ordered;
+    }
+
+    /**
+     * Sort position of a cut on the width axis. max(W) sits right after W,
+     * min(W) right before it — so max(767) < min(768) stay distinct.
+     */
+    private static function cut_order($cut, $open_end) {
+        if ($cut === null) {
+            return $open_end === 'lo' ? PHP_INT_MIN : PHP_INT_MAX;
+        }
+        return $cut['w'] * 2 + ($cut['op'] === 'max' ? 1 : 0);
+    }
+
+    /**
+     * Media condition for a band. Classic min-/max-width (Level 4 range
+     * syntax needs Safari/iOS 16.4+); exclusive bounds use the Bootstrap
+     * .02px offset so neighbouring bands meet without a usable gap at
+     * browser zoom: (767, 991] → (min-width: 767.02px) and (max-width: 991px),
+     * [768, 1024) → (min-width: 768px) and (max-width: 1023.98px).
+     * Widths are ints, so the decimals are built as strings — no locale
+     * (decimal comma) can sneak in. '' = no bound at all.
+     */
+    private static function range_media_condition($lo, $hi) {
+        $parts = [];
+        if ($lo !== null) {
+            $w = (int) $lo['w'];
+            $parts[] = '(min-width: ' . ($lo['op'] === 'max' ? $w . '.02' : (string) $w) . 'px)';
+        }
+        if ($hi !== null) {
+            $w = (int) $hi['w'];
+            $parts[] = '(max-width: ' . ($hi['op'] === 'max' ? (string) $w : ($w - 1) . '.98') . 'px)';
+        }
+        return implode(' and ', $parts);
+    }
+
+    /**
+     * Pure: dropdown options "Label (768–991 px)" so the designer sees which
+     * band a breakpoint stands for.
+     */
+    public static function breakpoint_options(array $breakpoints) {
+        $options = [];
+        foreach (self::breakpoint_ranges($breakpoints) as $key => $range) {
+            $label = $key;
+            foreach ($breakpoints as $bp) {
+                if ($bp['key'] === $key) {
+                    $label = $bp['label'];
+                    break;
+                }
+            }
+
+            $from = $range['lo'] === null ? null : (int) $range['lo']['w'] + ($range['lo']['op'] === 'max' ? 1 : 0);
+            $to   = $range['hi'] === null ? null : (int) $range['hi']['w'] - ($range['hi']['op'] === 'min' ? 1 : 0);
+            if ($from !== null && $to !== null) {
+                /* translators: 1: lower px, 2: upper px */
+                $band = sprintf(esc_html__('%1$d–%2$d px', 'immoadmin'), $from, $to);
+            } elseif ($from !== null) {
+                /* translators: %d: px */
+                $band = sprintf(esc_html__('ab %d px', 'immoadmin'), $from);
+            } elseif ($to !== null) {
+                /* translators: %d: px */
+                $band = sprintf(esc_html__('bis %d px', 'immoadmin'), $to);
+            } else {
+                $band = esc_html__('alle Breiten', 'immoadmin');
+            }
+
+            $options[$key] = esc_html($label) . ' (' . $band . ')';
+        }
+        return $options;
+    }
+
+    /**
+     * Pure: stored "Ausblenden auf" value → known breakpoint keys, in
+     * breakpoint order, unique. Unknown keys (deleted or renamed custom
+     * breakpoints, junk) are dropped, so they can never reach the CSS.
+     */
+    public static function sanitize_hide_on($raw, array $breakpoints) {
+        if (is_string($raw)) {
+            $raw = [$raw];
+        }
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $wanted = [];
+        foreach ($raw as $value) {
+            if (is_scalar($value)) {
+                $wanted[(string) $value] = true;
+            }
+        }
+
+        $keys = [];
+        foreach ($breakpoints as $bp) {
+            if (isset($wanted[$bp['key']])) {
+                $keys[] = $bp['key'];
+            }
+        }
+        return $keys;
+    }
+
+    /**
+     * Pure: scoped CSS for "Ausblenden auf".
+     *
+     * Cuts the width axis at every breakpoint bound (plus the legacy 767px
+     * bound when old mobile_visible columns are still hidden by the static
+     * CSS), and for every band where at least one column is hidden emits:
+     *   - display:none for that column's header + cells (by data-col-index —
+     *     the filter empty-row and accordion panel carry none, so they stay)
+     *   - grid-template-columns from the tracks still visible in that band,
+     *     so rows don't flow into the gaps (same reason as the mobile grid).
+     * Neighbouring bands with the same result are merged. Bands without a
+     * hidden column get nothing: the static CSS already fits them.
+     *
+     * Legacy mobile_visible=false and "Ausblenden auf" combine: such a
+     * column keeps data-mobile-visible="0" (static rule hides it ≤767px)
+     * and is additionally hidden in its selected bands; the grid of every
+     * band leaves out both.
+     *
+     * Unlayered (beats the @layer bricks defaults, incl. the legacy mobile
+     * grid). Selectors walk the real DOM path with child combinators from
+     * this element's .brxe-{id} root, so a units table nested inside an
+     * accordion panel is never matched:
+     *   root > [.immoadmin-table-scroll >] .immoadmin-table
+     *     > .immoadmin-table-header > .immoadmin-table-cell-header
+     *     > [.accordion-item >] .immoadmin-table-row > .immoadmin-table-cell
+     *
+     * @param string $scope         e.g. ".brxe-abc123" (already sanitised)
+     * @param array  $tracks        col index => grid track, in column order
+     * @param array  $hide_on       col index => sanitize_hide_on() keys
+     * @param array  $legacy_hidden col indexes with mobile_visible off
+     * @param array  $breakpoints   normalize_breakpoints() output
+     */
+    public static function column_visibility_css($scope, array $tracks, array $hide_on, array $legacy_hidden, array $breakpoints) {
+        $hide_on = array_filter($hide_on);
+        if (empty($hide_on) || empty($tracks)) {
+            return '';
+        }
+
+        $ranges = self::breakpoint_ranges($breakpoints);
+        $tables = [
+            $scope . ' > .immoadmin-table',
+            $scope . ' > .immoadmin-table-scroll > .immoadmin-table',
+        ];
+
+        // Every bound on the axis, sorted + unique.
+        $legacy_cut = ['w' => 767, 'op' => 'max'];
+        $cuts = [];
+        foreach ($ranges as $range) {
+            foreach (['lo', 'hi'] as $end) {
+                if ($range[$end] !== null) {
+                    $cuts[self::cut_order($range[$end], $end)] = $range[$end];
+                }
+            }
+        }
+        if (!empty($legacy_hidden)) {
+            $cuts[self::cut_order($legacy_cut, 'hi')] = $legacy_cut;
+        }
+        ksort($cuts);
+        $bounds = array_merge([null], array_values($cuts), [null]);
+
+        $bands = [];
+        for ($i = 0; $i < count($bounds) - 1; $i++) {
+            $lo = $bounds[$i];
+            $hi = $bounds[$i + 1];
+            $lo_ord = self::cut_order($lo, 'lo');
+            $hi_ord = self::cut_order($hi, 'hi');
+
+            $hidden = [];
+            foreach ($hide_on as $idx => $keys) {
+                foreach ($keys as $key) {
+                    if (!isset($ranges[$key])) {
+                        continue;
+                    }
+                    if (self::cut_order($ranges[$key]['lo'], 'lo') <= $lo_ord
+                        && $hi_ord <= self::cut_order($ranges[$key]['hi'], 'hi')) {
+                        $hidden[] = $idx;
+                        break;
+                    }
+                }
+            }
+            $legacy = !empty($legacy_hidden) && $hi !== null
+                && $hi_ord <= self::cut_order($legacy_cut, 'hi');
+
+            $last = count($bands) - 1;
+            if ($last >= 0 && $bands[$last]['hidden'] === $hidden && $bands[$last]['legacy'] === $legacy) {
+                $bands[$last]['hi'] = $hi;
+                continue;
+            }
+            $bands[] = ['lo' => $lo, 'hi' => $hi, 'hidden' => $hidden, 'legacy' => $legacy];
+        }
+
+        $css = [];
+        foreach ($bands as $band) {
+            if (empty($band['hidden'])) {
+                continue;
+            }
+
+            $visible = [];
+            foreach ($tracks as $idx => $track) {
+                if (in_array($idx, $band['hidden'], true)) {
+                    continue;
+                }
+                if ($band['legacy'] && in_array($idx, $legacy_hidden, true)) {
+                    continue;
+                }
+                $visible[] = $track;
+            }
+            // All hidden: keep the full template, like the mobile grid does.
+            $template = !empty($visible) ? implode(' ', $visible) : implode(' ', $tracks);
+
+            $selectors = [];
+            foreach ($band['hidden'] as $idx) {
+                $col = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $idx);
+                foreach ($tables as $table) {
+                    $selectors[] = $table . ' > .immoadmin-table-header > .immoadmin-table-cell-header[data-col-index="' . $col . '"]';
+                    $selectors[] = $table . ' > .immoadmin-table-row > .immoadmin-table-cell[data-col-index="' . $col . '"]';
+                    $selectors[] = $table . ' > .accordion-item > .immoadmin-table-row > .immoadmin-table-cell[data-col-index="' . $col . '"]';
+                }
+            }
+
+            $rules = implode(',', $tables) . '{grid-template-columns:' . $template . '}'
+                . implode(',', $selectors) . '{display:none !important}';
+
+            $condition = self::range_media_condition($band['lo'], $band['hi']);
+            $css[] = $condition !== '' ? '@media ' . $condition . '{' . $rules . '}' : $rules;
+        }
+
+        return implode("\n", $css);
+    }
+
+    // -----------------------------------------------------------------
     // RENDER
     // -----------------------------------------------------------------
 
@@ -1396,12 +1913,39 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $default_track = !empty($settings['horizontal_scroll'])
             ? 'max-content'
             : 'minmax(min-content, 1fr)';
+
+        // "Ausblenden auf" (v2.15.3). Adds scoped media queries ON TOP of
+        // the legacy mobile_visible logic (union): markup, data-mobile-visible
+        // and the mobile grid vars stay exactly as without the setting;
+        // column_visibility_css() fits the grid per band from both sources.
+        // Bricks breakpoints are only read when a column actually uses it.
+        $hide_on     = [];
+        $breakpoints = null;
+        foreach ($columns as $idx => $col) {
+            if (empty($col['hide_on_breakpoints'])) {
+                continue;
+            }
+            if ($breakpoints === null) {
+                $breakpoints = self::site_breakpoints();
+            }
+            $keys = self::sanitize_hide_on($col['hide_on_breakpoints'], $breakpoints);
+            if (!empty($keys)) {
+                $hide_on[$idx] = $keys;
+            }
+        }
+
         $tracks = [];
+        $tracks_by_idx = [];
+        $legacy_hidden = [];
         $mobile_tracks = [];
         $mobile_count = 0;
-        foreach ($columns as $col) {
+        foreach ($columns as $idx => $col) {
             $track = !empty($col['compact']) ? 'max-content' : $default_track;
             $tracks[] = $track;
+            $tracks_by_idx[$idx] = $track;
+            if (empty($col['mobile_visible'])) {
+                $legacy_hidden[] = $idx;
+            }
             // Mobile-visible columns get their own track list so the @media
             // override can re-template the grid to the correct visible count.
             // Without this, hidden cells (display:none) leave the grid still
@@ -1482,6 +2026,26 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         if (!$is_ajax_loop) {
             echo "<div {$this->render_attributes('_root')}>";
+
+            // Scoped breakpoint CSS lives INSIDE the root: the builder canvas
+            // keeps only the first element of render_element's HTML
+            // (iframe.min.js setHTML: DOMParser → body.firstElementChild), so
+            // a <style> before the root would be lost or replace it there.
+            // Builder breakpoints resize the canvas iframe, so the media
+            // queries preview as on the frontend. Every value in it is built
+            // from integers / fixed track keywords — nothing user-typed.
+            if (!empty($hide_on)) {
+                $bp_css = self::column_visibility_css(
+                    '.brxe-' . sanitize_html_class($this->id),
+                    $tracks_by_idx,
+                    $hide_on,
+                    $legacy_hidden,
+                    $breakpoints
+                );
+                if ($bp_css !== '') {
+                    echo '<style>' . $bp_css . '</style>';
+                }
+            }
 
             if ($horizontal_scroll) {
                 $scroll_attrs = ' class="immoadmin-table-scroll"';
