@@ -56,7 +56,30 @@ check('#3 builder preview: first unit = item after the header (no :first-of-type
 check('#4 row structure via child combinators (nested accordions untouched)', array(strpos($c4, '.immoadmin-table > .accordion-item {') !== false, preg_match('/\) \.accordion-item \{/', $c4)), array(true, 0));
 check('#5 collapsed panel hidden from tab order / AT', strpos($c4, 'visibility: hidden;') !== false && strpos($c4, 'visibility: visible;') !== false, true);
 check('#9 no column-gap anywhere', preg_match('/column-gap/', $c4), 0);
-check('#12 14px is a root fallback, not on the grid', array(strpos($c4, ".immoadmin-table {\n            font-size: 14px"), strpos($c4, ":where(.brxe-immoadmin-units-table) {\n            font-size: 14px;") !== false), array(false, true));
+check('#12 v2.15.6: 14px ≤1024 on the grid, only for data-iat-font="default" (pre-v2.15.4 weight)', array(
+    strpos($c4, "@media (max-width: 1024px) {\n        :where(.brxe-immoadmin-units-table[data-iat-font=\"default\"]) .immoadmin-table {\n            font-size: 14px;") !== false,
+    strpos($c4, ":where(.brxe-immoadmin-units-table) {\n            font-size: 14px;"), substr_count($c4, 'font-size: 14px')), array(true, false, 1));
+$UTF = 'ImmoAdmin_Units_Table';
+check('#12 own font size detection', array(
+    $UTF::has_own_font_size(array()),
+    $UTF::has_own_font_size(array('_typography' => array('font-size' => '18px'))),
+    $UTF::has_own_font_size(array('_typography:mobile_portrait' => array('font-size' => '16'))),
+    $UTF::has_own_font_size(array('_typography:tablet_portrait:hover' => array('font-size' => '1.2rem'))),
+    $UTF::has_own_font_size(array('_typography' => array('font-weight' => '700', 'color' => array('hex' => '#000')))),
+    $UTF::has_own_font_size(array('_typography' => array('font-size' => ' '))),
+    $UTF::has_own_font_size(array('_cssGlobalClasses' => array('text-s'))),
+    $UTF::has_own_font_size(array('_typographyX' => array('font-size' => '18px'), 'row_typography' => array('font-size' => '18px'))),
+    $UTF::has_own_font_size(null)),
+    array(false, true, true, true, false, false, false, false, false));
+$fs = function ($extra) { return immoadmin_test_render_table(array_merge(immoadmin_test_table_cases()['table-legacy-dim'], $extra)); };
+check('#12 render: data-iat-font="default" unless own typography has a font size', array(
+    $attr($fs(array()), 'data-iat-font'),
+    $attr($fs(array('_typography' => array('font-size' => '18px'))), 'data-iat-font'),
+    $attr($fs(array('_typography:mobile_portrait' => array('font-size' => '18px'))), 'data-iat-font'),
+    $attr($fs(array('_typography' => array('font-weight' => '700'))), 'data-iat-font'),
+    $attr($fs(array('_cssGlobalClasses' => array('text-s'))), 'data-iat-font')),
+    array('default', null, null, 'default', 'default'));
+check('#12 render: own font size → otherwise byte-identical to the default case', str_replace(' data-iat-font="default"', '', $fs(array())), $fs(array('_typography' => array('font-size' => '18px'))));
 check('#1 mobile padding via the variable (header + cells consistent)', array(strpos($c4, '--iat-row-padding: 8px 10px;') !== false, preg_match('/(?<![-\w])padding:\s*8px 10px/', $c4)), array(true, 0));
 
 section('units-table v2.15.4: tracks + per-column min width / padding');

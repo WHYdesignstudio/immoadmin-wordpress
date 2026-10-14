@@ -1912,6 +1912,32 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         return implode("\n", $css);
     }
 
+    /**
+     * Pure: does the element's own root typography set a font size?
+     *
+     * Bricks 2.3.9 stores the Typography control as '_typography' plus
+     * breakpoint / pseudo-class / component-variant variants joined with
+     * ':' ('_typography:mobile_portrait', '_typography:tablet_portrait:hover',
+     * '_typography:variant-abc'; Assets::generate_inline_css splits the key
+     * on ':'), each an array keyed by CSS property ('font-size' => '18px').
+     * Any of them with a non-empty font-size counts. Global classes live in
+     * '_cssGlobalClasses' and are deliberately ignored.
+     */
+    public static function has_own_font_size($settings) {
+        if (!is_array($settings)) {
+            return false;
+        }
+        foreach ($settings as $key => $value) {
+            if (!is_string($key) || !preg_match('/^_typography(:|$)/', $key) || !is_array($value)) {
+                continue;
+            }
+            if (isset($value['font-size']) && is_scalar($value['font-size']) && trim((string) $value['font-size']) !== '') {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // -----------------------------------------------------------------
     // COLUMN WIDTH / SPACING (v2.15.4)
     // -----------------------------------------------------------------
@@ -2097,6 +2123,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $this->set_attribute('_root', 'data-element', 'immoadmin-units-table');
         $this->set_attribute('_root', 'data-mode', $mode);
         $this->set_attribute('_root', 'data-status-handling', $status_handling);
+        // ≤1024px the table text falls back to 14px (the pre-v2.15.4 look)
+        // unless the widget's OWN typography sets a font size — see
+        // has_own_font_size(). Global classes (e.g. text-s) don't count.
+        if (!self::has_own_font_size($settings)) {
+            $this->set_attribute('_root', 'data-iat-font', 'default');
+        }
         if ($url_state) {
             $this->set_attribute('_root', 'data-url-state', '1');
             $this->set_attribute('_root', 'data-url-key', $url_state_key);

@@ -10,6 +10,7 @@
  *   .is-even .is-roomy .is-highlighted .brx-open .immoadmin-row-toggle
  *   .immoadmin-accordion-panel__cell .is-available .is-reserved .is-sold
  *   .is-rented .is-dimmed  [data-builder] [data-immoadmin-filter-hidden]
+ *   [data-iat-font]
  */
 @layer bricks {
 
@@ -535,12 +536,13 @@
     }
 
     /* Mobile breakpoints — Bricks default scale (max-width 767/1024).
-     * 14px is only a FALLBACK now (v2.15.4): it sits on the root with zero
-     * specificity, so the element's own typography (Bricks' unlayered
-     * .brxe-{id} rule, any breakpoint) wins. It used to sit on the grid and
-     * silently override it below 1025px. */
+     * ≤1024px the table text is 14px — the pre-v2.15.4 rule, same place and
+     * weight (cell / header typography controls still win) — but only when
+     * the widget's own typography sets no font size: PHP then marks the root
+     * data-iat-font="default". With an own font size there is no attribute
+     * and that size applies. Global classes (text-s …) don't count. */
     @media (max-width: 1024px) {
-        :where(.brxe-immoadmin-units-table) {
+        :where(.brxe-immoadmin-units-table[data-iat-font="default"]) .immoadmin-table {
             font-size: 14px;
         }
     }
