@@ -1919,7 +1919,9 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
     /**
      * Pure: grid track of one column.
      *
-     *  - "Kompakt"                  → max-content (as wide as its content)
+     *  - "Kompakt"                  → minmax(min-content, max-content): as
+     *    wide as its content while there is room, shrinkable when not
+     *    (scroll mode: max-content)
      *  - horizontal scroll          → auto: as wide as the content while the
      *    table overflows, and — unlike max-content — stretched by the grid
      *    when the table is NARROWER than its wrapper, so row lines and the
@@ -1936,7 +1938,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
      */
     public static function column_track(array $col, $horizontal_scroll) {
         if (!empty($col['compact'])) {
-            return 'max-content';
+            // v2.15.5: may shrink to min-content when the row doesn't fit
+            // (live: 4 compact columns at 18px overflowed a 358px phone by
+            // 39px). With enough room the grid still grows it to max-content
+            // before the fr columns get the rest, so the look is unchanged.
+            // Scroll mode keeps max-content: there the table may overflow.
+            return $horizontal_scroll ? 'max-content' : 'minmax(min-content, max-content)';
         }
         return $horizontal_scroll ? 'auto' : 'minmax(min-content, 1fr)';
     }

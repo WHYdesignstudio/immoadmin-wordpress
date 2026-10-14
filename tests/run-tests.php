@@ -1405,7 +1405,7 @@ check('union: legacy flag kept — header + every row stay data-mobile-visible="
 check('union: markup apart from the <style> byte-identical to baseline (flag + mobile grid vars unchanged)', $strip_style($sh), $baseline['accordion-preset']);
 $sstyle = $styles($sh)[0] ?? '';
 check('union: tablet band hides Stockwerk; ≤767 left to the legacy rule (no extra band)', $sstyle,
-    '@media (min-width: 767.02px) and (max-width: 991px){' . $tbl('.brxe-tbl777') . '{grid-template-columns:' . implode(' ', array_fill(0, 8, $F)) . ' max-content max-content}'
+    '@media (min-width: 767.02px) and (max-width: 991px){' . $tbl('.brxe-tbl777') . '{grid-template-columns:' . implode(' ', array_fill(0, 8, $F)) . ' minmax(min-content, max-content) minmax(min-content, max-content)}' // compact tracks shrinkable since v2.15.5
     . $hide_sel('.brxe-tbl777', 1) . '{display:none !important}}');
 check('accordion panels still rendered', substr_count($sh, 'class="immoadmin-accordion-panel"'), substr_count($baseline['accordion-preset'], 'class="immoadmin-accordion-panel"'));
 // Same column also hidden on desktop: union across both sources per band.

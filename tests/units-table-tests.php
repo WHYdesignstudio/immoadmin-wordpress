@@ -61,7 +61,13 @@ check('#1 mobile padding via the variable (header + cells consistent)', array(st
 
 section('units-table v2.15.4: tracks + per-column min width / padding');
 check('#1/#11 tracks', array($UT::column_track(array(), false), $UT::column_track(array('compact' => true), false), $UT::column_track(array(), true), $UT::column_track(array('compact' => true), true), $UT::column_track(array('min_width' => '80px'), false)),
-    array('minmax(min-content, 1fr)', 'max-content', 'auto', 'max-content', 'minmax(min-content, 1fr)'));
+    array('minmax(min-content, 1fr)', 'minmax(min-content, max-content)', 'auto', 'max-content', 'minmax(min-content, 1fr)'));
+$cmp = immoadmin_test_render_table(array_merge(immoadmin_test_table_cases()['accordion-preset'], array('columns' => array_merge(immoadmin_test_table_cases()['accordion-preset']['columns'], array(array('header' => 'X', 'value' => 'x', 'compact' => true, 'hide_on_breakpoints' => array('mobile_portrait')))))));
+check('v2.15.5 compact shrinkable in grid, mobile grid and band templates (no bare max-content left)', array(
+    preg_match('/--iat-grid-cols:[^;]*(?<!, )max-content(?!\))/', (string) $attr($cmp, 'style')),
+    preg_match('/--iat-mobile-grid-cols:[^;]*(?<!, )max-content(?!\))/', (string) $attr($cmp, 'style')),
+    preg_match('/grid-template-columns:[^}]*(?<!, )max-content(?!\))/', implode('', $styles($cmp))),
+    strpos(implode('', $styles($cmp)), 'minmax(min-content, max-content)') !== false), array(0, 0, 0, true));
 foreach (array('80px' => '80px', ' 1.5REM ' => '1.5rem', '.5em' => '.5em', '0' => '0', '12ch' => '12ch', '10vw' => '10vw',
     '80' => '', '10%' => '', '-5px' => '', 'calc(1px + 2px)' => '', 'var(--x)' => '', '{cf_x}' => '', '1px;}body{color:red' => '', '1e3px' => '', '12345px' => '', '' => '') as $in => $out) {
     check('#1 length ' . var_export((string) $in, true) . ' → ' . var_export($out, true), $UT::sanitize_css_length($in), $out);
