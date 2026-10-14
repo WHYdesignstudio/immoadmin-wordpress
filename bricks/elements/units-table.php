@@ -222,7 +222,9 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                     ],
                     'default'  => '_self',
                     'inline'   => true,
-                    'required' => ['type', '!=', 'text'],
+                    // Only the two column types that render a link (v2.15.4;
+                    // was "!= text", which also showed it for image/badge/…).
+                    'required' => ['type', '=', ['link', 'icon']],
                 ],
                 'sortable' => [
                     'label'   => esc_html__('Sortierbar', 'immoadmin'),
@@ -295,9 +297,26 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                 'compact' => [
                     'label'   => esc_html__('Kompakt (auto-Breite)', 'immoadmin'),
                     'type'    => 'checkbox',
-                    'info'    => esc_html__('Spalte nimmt nur so viel Breite wie der Inhalt — gut für Status-Punkte oder Icon-Spalten.', 'immoadmin'),
+                    'info'    => esc_html__('Spalte nimmt nur so viel Breite wie der Inhalt (plus Innenabstand) — gut für Status-Punkte oder Icon-Spalten. Bei „Horizontal scrollen“ sind alle Spalten so breit wie ihr Inhalt, dort ändert Kompakt nichts.', 'immoadmin'),
                     'inline'  => true,
                     'small'   => true,
+                ],
+                // v2.15.4 — both optional, no default: an empty value adds
+                // nothing to the markup or CSS. Validated in
+                // sanitize_css_length() / sanitize_css_padding().
+                'min_width' => [
+                    'label'       => esc_html__('Mindestbreite', 'immoadmin'),
+                    'type'        => 'text',
+                    'placeholder' => 'z. B. 80px',
+                    'inline'      => true,
+                    'info'        => esc_html__('Zahl mit Einheit (px, em, rem, ch, vw), z. B. 80px. Die Spalte wird nie schmäler, auch nicht als „Kompakt“.', 'immoadmin'),
+                ],
+                'cell_padding' => [
+                    'label'       => esc_html__('Innenabstand', 'immoadmin'),
+                    'type'        => 'text',
+                    'placeholder' => 'z. B. 8px 16px',
+                    'inline'      => true,
+                    'info'        => esc_html__('Nur für diese Spalte (Kopf + Zellen), überschreibt „Zell-Padding“. 1–4 Werte wie bei CSS padding, z. B. „8px 16px“.', 'immoadmin'),
                 ],
                 'align' => [
                     'label'   => esc_html__('Ausrichtung', 'immoadmin'),
@@ -583,7 +602,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'tab'      => 'content',
             'group'    => 'filter',
             'type'     => 'info',
-            'content'  => esc_html__('Anzahl anzeigen: einem Element im selben Wrapper (z. B. der Überschrift) das Attribut data-immoadmin-count geben, Wert z. B. „{count} Wohnungen“ (optional data-immoadmin-count-one=„1 Wohnung“). Es zeigt die Zahl der sichtbaren Wohnungen.', 'immoadmin'),
+            'content'  => esc_html__('Anzahl anzeigen: einem Element im selben Wrapper (z. B. der Überschrift) das Attribut data-immoadmin-count geben, Wert z. B. „{count} Wohnungen“ (optional data-immoadmin-count-one=„1 Wohnung“). Es zeigt die Zahl der sichtbaren Wohnungen. Außerhalb des Wrappers: data-immoadmin-count-for=„<Tabellen-ID>“ (mehrere mit Leerzeichen trennen, Summe).', 'immoadmin'),
         ];
 
         // ---------- Status colors ----------
@@ -830,23 +849,32 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ],
         ];
 
+        // Zebra (v2.15.4): units-table.js marks every other VISIBLE row with
+        // .is-even (1st, 3rd, … unit = the phase nth-of-type gave saved
+        // pages), after init, sort, filter and load-more. Covers bare rows
+        // (reserved/sold/rented, "Tabelle pur") too — nth-of-type counted
+        // the header and hidden rows and only styled .accordion-item.
         $this->controls['row_alternate_background'] = [
             'tab'   => 'style',
             'group' => 'table_style',
             'label' => esc_html__('Zebra-Streifen (gerade Zeilen)', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
-                ['property' => 'background-color', 'selector' => '.accordion-item:nth-of-type(even) .immoadmin-table-cell'],
+                ['property' => 'background-color', 'selector' => '.immoadmin-table-row.is-even > .immoadmin-table-cell'],
             ],
         ];
 
+        // Every row kind (accordion row, bare row, table mode); hovering the
+        // open panel still lights its row, as before. Both parts weigh the
+        // same as the old selector (3 classes after .brxe-{id}), so "Aktive
+        // Zeile (offen)" below still wins over hover and hover over zebra.
         $this->controls['row_hover_background'] = [
             'tab'   => 'style',
             'group' => 'table_style',
             'label' => esc_html__('Hover-Hintergrund', 'immoadmin'),
             'type'  => 'color',
             'css'   => [
-                ['property' => 'background-color', 'selector' => '.accordion-item:hover .immoadmin-table-cell'],
+                ['property' => 'background-color', 'selector' => '.immoadmin-table-row:hover > .immoadmin-table-cell, .accordion-item:hover > :where(.immoadmin-table-row) > .immoadmin-table-cell'],
             ],
         ];
 
@@ -860,13 +888,17 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ],
         ];
 
+        // Cells AND header cells (v2.15.4), so header and columns line up.
+        // The header part is wrapped in :where() → one class lower than the
+        // Kopfzeile "Padding" control (.immoadmin-table-cell-header), which
+        // therefore still wins wherever it is set.
         $this->controls['row_padding'] = [
             'tab'   => 'style',
             'group' => 'table_style',
             'label' => esc_html__('Zell-Padding', 'immoadmin'),
             'type'  => 'spacing',
             'css'   => [
-                ['property' => 'padding', 'selector' => '.immoadmin-table-cell'],
+                ['property' => 'padding', 'selector' => '.immoadmin-table-cell, :where(.immoadmin-table-cell-header)'],
             ],
         ];
 
@@ -882,12 +914,17 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ],
         ];
 
+        // Bricks' border control ignores 'property' and writes all four sides
+        // unless 'directions' limits it (Assets::generate_inline_css 2.3.9:
+        // foreach over the VALUES of 'directions'; builder preview: Object.keys
+        // of it) — hence key = value, which both read as "bottom".
         $this->controls['row_border'] = [
-            'tab'   => 'style',
-            'group' => 'table_style',
-            'label' => esc_html__('Trennlinie zwischen Zeilen', 'immoadmin'),
-            'type'  => 'border',
-            'css'   => [
+            'tab'        => 'style',
+            'group'      => 'table_style',
+            'label'      => esc_html__('Trennlinie zwischen Zeilen', 'immoadmin'),
+            'type'       => 'border',
+            'directions' => ['bottom' => 'bottom'],
+            'css'        => [
                 ['property' => 'border-bottom', 'selector' => '.immoadmin-table-cell'],
             ],
         ];
@@ -908,6 +945,10 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'label' => esc_html__('Tabelle gesamt', 'immoadmin'),
         ];
 
+        // v2.15.4: no grid column-gap any more (it tore row lines, zebra and
+        // hover into pieces). Same key, so saved values keep working: the
+        // value goes to --iat-col-gap and the CSS adds half of it as space on
+        // both sides of every cell, on top of "Zell-Padding".
         $this->controls['table_column_gap'] = [
             'tab'   => 'style',
             'group' => 'table_style',
@@ -915,8 +956,9 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'type'  => 'number',
             'units' => true,
             'placeholder' => '0',
+            'info'  => esc_html__('Zusätzlicher Abstand links und rechts in jeder Zelle (je die Hälfte). Linien und Zeilen-Hintergründe laufen durch.', 'immoadmin'),
             'css'   => [
-                ['property' => 'column-gap', 'selector' => '.immoadmin-table'],
+                ['property' => '--iat-col-gap', 'selector' => ''],
             ],
         ];
 
@@ -939,7 +981,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             'placeholder' => '0',
             'css'   => [
                 ['property' => 'border-radius', 'selector' => '.immoadmin-table'],
-                ['property' => 'overflow',      'selector' => '.immoadmin-table', 'value' => 'hidden'],
+                // clip, not hidden (v2.15.4): rounds the corners without
+                // making the grid a scroll container — with "hidden" the grid
+                // became the scroller in horizontal-scroll mode and the sticky
+                // detail panel broke. (Safari < 16 ignores clip: square-ish
+                // cell corners there, nothing worse.)
+                ['property' => 'overflow',      'selector' => '.immoadmin-table', 'value' => 'clip'],
             ],
         ];
 
@@ -1105,10 +1152,11 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
      *   │     ├─ button  "zum Plan"        → {cf_floor_plan_1}, new tab
      *   │     └─ button  "Jetzt anfragen"  → #anfrage
      *   └─ Grundrisse (block)
-     *      ├─ slider-nested "Grundriss-Slider"
+     *      ├─ slider-nested "Grundriss-Slider"   only if {cf_floor_plan_2} set
      *      │  └─ block (Query loop: ImmoAdmin Grundrisse)
      *      │     └─ image {immoadmin_media_url}
-     *      └─ image {cf_floor_plan_1}   (alternative without slider)
+     *      └─ image {cf_floor_plan_1}            only if plan 1 set AND plan 2
+     *                                            empty (v2.15.4: never both)
      *
      * Wrapping uses flex-basis instead of breakpoint keys, so it works with
      * custom / mobile-first breakpoints too. Every element carries explicit
@@ -1118,15 +1166,22 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
      * Units with no floor plan: slider + single image + "zum Plan" are
      * dropped by their conditions (conditions are always "true" inside the
      * builder, so the designer still sees everything there).
+     *
+     * Condition format = Bricks 2.3.9 Conditions::check(): a list of sets
+     * (OR between sets), each a list of conditions (AND inside a set);
+     * 'dynamic_data' compares with 'empty' / 'empty_not' (since 1.10).
      */
     public static function default_detail() {
-        $not_empty = function ($id, $tag) {
-            return [[[
+        $cond = function ($id, $tag, $compare) {
+            return [
                 'id'           => $id,
                 'key'          => 'dynamic_data',
                 'dynamic_data' => $tag,
-                'compare'      => 'empty_not',
-            ]]];
+                'compare'      => $compare,
+            ];
+        };
+        $not_empty = function ($id, $tag) use ($cond) {
+            return [[$cond($id, $tag, 'empty_not')]];
         };
 
         $line = function ($label, $tag, $id, $prefix = '') use ($not_empty) {
@@ -1140,7 +1195,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             ];
         };
 
-        $plan_condition = $not_empty('iaplan', '{cf_floor_plan_1}');
+        // Several plans → slider; exactly one → single image (one set, AND).
+        $slider_condition = $not_empty('iaplan', '{cf_floor_plan_2}');
+        $single_condition = [[
+            $cond('iaplm1', '{cf_floor_plan_1}', 'empty_not'),
+            $cond('iaplm2', '{cf_floor_plan_2}', 'empty'),
+        ]];
 
         return [
             'name'     => 'block',
@@ -1240,7 +1300,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                                 'arrows'      => true,
                                 'pagination'  => true,
                                 'gap'         => '0',
-                                '_conditions' => $plan_condition,
+                                '_conditions' => $slider_condition,
                             ],
                             'children' => [
                                 [
@@ -1281,7 +1341,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                                 'caption'     => 'none',
                                 '_width'      => '100%',
                                 '_objectFit'  => 'contain',
-                                '_conditions' => $not_empty('iaplm1', '{cf_floor_plan_1}'),
+                                '_conditions' => $single_condition,
                             ],
                         ],
                     ],
@@ -1853,6 +1913,141 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
     }
 
     // -----------------------------------------------------------------
+    // COLUMN WIDTH / SPACING (v2.15.4)
+    // -----------------------------------------------------------------
+
+    /**
+     * Pure: grid track of one column.
+     *
+     *  - "Kompakt"                  → max-content (as wide as its content)
+     *  - horizontal scroll          → auto: as wide as the content while the
+     *    table overflows, and — unlike max-content — stretched by the grid
+     *    when the table is NARROWER than its wrapper, so row lines and the
+     *    detail panel span the full width (was: max-content, gap at right)
+     *  - otherwise                  → minmax(min-content, 1fr): share the
+     *    width, never narrower than the longest word
+     *
+     * "Mindestbreite" is NOT folded into the track: a minmax(<min>, 1fr)
+     * track may shrink below its content (fr tracks only respect their
+     * fixed minimum), which is exactly the mid-word wrapping this release
+     * fixes. It is a min-width on the column's cells instead (see
+     * column_style_css()) — a grid item's min-width raises its min- and
+     * max-content contribution, so every track kind honours it.
+     */
+    public static function column_track(array $col, $horizontal_scroll) {
+        if (!empty($col['compact'])) {
+            return 'max-content';
+        }
+        return $horizontal_scroll ? 'auto' : 'minmax(min-content, 1fr)';
+    }
+
+    /**
+     * Pure: one CSS length as typed in the builder → "80px" / "1.5rem" /
+     * "0", or '' when it is anything else (dynamic data, calc(), var(),
+     * %, junk). Only number + unit can reach the inline <style>.
+     */
+    public static function sanitize_css_length($raw) {
+        if (!is_scalar($raw)) {
+            return '';
+        }
+        $v = strtolower(trim((string) $raw));
+        if ($v === '0') {
+            return '0';
+        }
+        if (preg_match('/^(\d{1,4}(?:\.\d{1,3})?|\.\d{1,3})(px|em|rem|ch|vw)$/', $v, $m)) {
+            return $m[1] . $m[2];
+        }
+        return '';
+    }
+
+    /**
+     * Pure: padding shorthand with 1–4 lengths → normalised string, or ''
+     * if any part is invalid (all or nothing, so a typo never half-applies).
+     */
+    public static function sanitize_css_padding($raw) {
+        if (!is_scalar($raw)) {
+            return '';
+        }
+        $parts = preg_split('/\s+/', trim((string) $raw), -1, PREG_SPLIT_NO_EMPTY);
+        if (empty($parts) || count($parts) > 4) {
+            return '';
+        }
+        $out = [];
+        foreach ($parts as $part) {
+            $len = self::sanitize_css_length($part);
+            if ($len === '') {
+                return '';
+            }
+            $out[] = $len;
+        }
+        return implode(' ', $out);
+    }
+
+    /**
+     * Pure: a column's optional "Mindestbreite" / "Innenabstand" →
+     * ['min-width' => …, 'padding' => …] (only the valid, set ones).
+     */
+    public static function column_style_from_settings(array $col) {
+        $style = [];
+        $min = self::sanitize_css_length($col['min_width'] ?? '');
+        if ($min !== '') {
+            $style['min-width'] = $min;
+        }
+        $pad = self::sanitize_css_padding($col['cell_padding'] ?? '');
+        if ($pad !== '') {
+            $style['padding'] = $pad;
+        }
+        return $style;
+    }
+
+    /**
+     * Pure: scoped CSS for per-column min-width / padding.
+     *
+     * Same scoping as column_visibility_css(): child combinators from this
+     * element's .brxe-{id} root along the real DOM path (plain + scroll
+     * wrapper; header, bare row, accordion row), so a units table nested in
+     * an accordion panel is never matched. Unlayered and more specific than
+     * Bricks' "Zell-Padding" (.brxe-{id} .immoadmin-table-cell), so the
+     * column value wins over the table-wide one.
+     *
+     * @param string $scope  e.g. ".brxe-abc123" (already sanitised)
+     * @param array  $styles col index => column_style_from_settings()
+     */
+    public static function column_style_css($scope, array $styles) {
+        $tables = [
+            $scope . ' > .immoadmin-table',
+            $scope . ' > .immoadmin-table-scroll > .immoadmin-table',
+        ];
+        $css = [];
+        foreach ($styles as $idx => $style) {
+            $decl = [];
+            foreach (['min-width', 'padding'] as $prop) {
+                if (isset($style[$prop])) {
+                    // Re-validated here too: this function writes into <style>.
+                    $value = $prop === 'padding'
+                        ? self::sanitize_css_padding($style[$prop])
+                        : self::sanitize_css_length($style[$prop]);
+                    if ($value !== '') {
+                        $decl[] = $prop . ':' . $value;
+                    }
+                }
+            }
+            if (empty($decl)) {
+                continue;
+            }
+            $col = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $idx);
+            $selectors = [];
+            foreach ($tables as $table) {
+                $selectors[] = $table . ' > .immoadmin-table-header > .immoadmin-table-cell-header[data-col-index="' . $col . '"]';
+                $selectors[] = $table . ' > .immoadmin-table-row > .immoadmin-table-cell[data-col-index="' . $col . '"]';
+                $selectors[] = $table . ' > .accordion-item > .immoadmin-table-row > .immoadmin-table-cell[data-col-index="' . $col . '"]';
+            }
+            $css[] = implode(',', $selectors) . '{' . implode(';', $decl) . '}';
+        }
+        return implode("\n", $css);
+    }
+
+    // -----------------------------------------------------------------
     // RENDER
     // -----------------------------------------------------------------
 
@@ -1906,13 +2101,8 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         if (!isset($settings['accordion_single_open']) || !empty($settings['accordion_single_open'])) {
             $this->set_attribute('_root', 'data-single-open', '1');
         }
-        // Build per-column grid track sizes. Compact columns get max-content,
-        // others share 1fr (fit container) — UNLESS horizontal scroll is on,
-        // in which case all non-compact columns also use max-content so the
-        // table can grow wider than its wrapper and trigger overflow-x:auto.
-        $default_track = !empty($settings['horizontal_scroll'])
-            ? 'max-content'
-            : 'minmax(min-content, 1fr)';
+        // Build per-column grid track sizes — see column_track().
+        $default_track = self::column_track([], $horizontal_scroll);
 
         // "Ausblenden auf" (v2.15.3). Adds scoped media queries ON TOP of
         // the legacy mobile_visible logic (union): markup, data-mobile-visible
@@ -1939,9 +2129,14 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         $legacy_hidden = [];
         $mobile_tracks = [];
         $mobile_count = 0;
+        $col_styles = [];
         foreach ($columns as $idx => $col) {
-            $track = !empty($col['compact']) ? 'max-content' : $default_track;
+            $track = self::column_track(is_array($col) ? $col : [], $horizontal_scroll);
             $tracks[] = $track;
+            $style = self::column_style_from_settings(is_array($col) ? $col : []);
+            if (!empty($style)) {
+                $col_styles[$idx] = $style;
+            }
             $tracks_by_idx[$idx] = $track;
             if (empty($col['mobile_visible'])) {
                 $legacy_hidden[] = $idx;
@@ -1962,7 +2157,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             '--iat-grid-cols: ' . $grid_template
             . '; --iat-cols: ' . max(1, count($columns))
             . '; --iat-mobile-grid-cols: ' . $mobile_grid_template
-            . '; --iat-mobile-cols: ' . max(1, $mobile_count)
+            . '; --iat-mobile-cols: ' . max(1, $mobile_count) . ';'
         );
         // Surface the query element id to JS so it can refetch via Bricks filter system.
         $this->set_attribute('_root', 'data-bricks-query-id', $this->id);
@@ -2008,9 +2203,15 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             )));
         }
 
-        // In Bricks builder iframe: flag so CSS can force the first row's
+        // In the Bricks builder: flag so CSS can force the first row's
         // accordion panel open (designer can't style what they can't see).
-        if (function_exists('bricks_is_builder_iframe') && bricks_is_builder_iframe()) {
+        // The canvas renders elements over REST/AJAX, where
+        // bricks_is_builder_iframe() is false. bricks_is_builder_call() alone
+        // is NOT enough: it is also true for a plain request with a forged
+        // "bricks=run" Referer, which a page cache could then store. So the
+        // same capability-checked test as the redaction bypass. The CSS also
+        // keys off the canvas body ([data-builder-window="iframe"]).
+        if (self::is_builder_context()) {
             $this->set_attribute('_root', 'data-builder', '1');
         }
 
@@ -2034,17 +2235,24 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             // Builder breakpoints resize the canvas iframe, so the media
             // queries preview as on the frontend. Every value in it is built
             // from integers / fixed track keywords — nothing user-typed.
+            $scoped_css = [];
             if (!empty($hide_on)) {
-                $bp_css = self::column_visibility_css(
+                $scoped_css[] = self::column_visibility_css(
                     '.brxe-' . sanitize_html_class($this->id),
                     $tracks_by_idx,
                     $hide_on,
                     $legacy_hidden,
                     $breakpoints
                 );
-                if ($bp_css !== '') {
-                    echo '<style>' . $bp_css . '</style>';
-                }
+            }
+            // Per-column "Mindestbreite" / "Innenabstand" (v2.15.4). Values
+            // are validated lengths only (sanitize_css_length()).
+            if (!empty($col_styles)) {
+                $scoped_css[] = self::column_style_css('.brxe-' . sanitize_html_class($this->id), $col_styles);
+            }
+            $scoped_css = implode("\n", array_filter($scoped_css, 'strlen'));
+            if ($scoped_css !== '') {
+                echo '<style>' . $scoped_css . '</style>';
             }
 
             if ($horizontal_scroll) {
@@ -2222,8 +2430,16 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         // accordion must stay shut. Not tied to $status_handling — redaction
         // is a data rule, not a display option the editor can switch off.
         // See render_cell() / is_sensitive_field_key() for what gets dropped.
-        $is_restricted = !$is_builder
-            && in_array($status, ['reserved', 'sold', 'rented'], true);
+        // Allowlist (same rule as REST / filters / public JSON): anything but
+        // "available" — incl. an empty/unknown status — is restricted.
+        if (class_exists('ImmoAdmin_Visibility') && method_exists('ImmoAdmin_Visibility', 'is_public_status')) {
+            $status_is_public = ImmoAdmin_Visibility::is_public_status($status);
+        } elseif (class_exists('ImmoAdmin_Filter_Data')) {
+            $status_is_public = ImmoAdmin_Filter_Data::is_public_status($status);
+        } else {
+            $status_is_public = strtolower(trim($status)) === 'available';
+        }
+        $is_restricted = !$is_builder && !$status_is_public;
 
         // Filter values (v2.14.0) — only for tables a filter acts on.
         // Prices are dropped for every non-public status (allowlist, fails
@@ -2247,7 +2463,10 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
         }
 
         $row_classes = ['immoadmin-table-row'];
-        // Loop-id class so external Pagination JS can target our rows.
+        // Loop-id class: Bricks' load-more / infinite scroll finds the query
+        // trail as the LAST `.brxe-{queryId}` in the results container
+        // (frontend.js 2.3.9 bricksQueryLoadPage / load-more handler) and
+        // inserts the next page after it. Must stay on the rows.
         if ($element_id) {
             $row_classes[] = 'brxe-' . sanitize_html_class($element_id);
         }
@@ -2280,12 +2499,12 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
                 . $filter_attr
                 . '>';
 
+            // No tabindex / aria-expanded on the row any more (v2.15.4): it is
+            // display:contents and can't take focus in Chromium. The toggle
+            // is a real <button> inside one of its cells (see below).
             $row_classes[] = 'accordion-title-wrapper';
             $row_attr  = ' role="row"';
             $row_attr .= ' id="' . esc_attr($title_id) . '"';
-            $row_attr .= ' aria-controls="' . esc_attr($content_id) . '"';
-            $row_attr .= ' aria-expanded="false"';
-            $row_attr .= ' tabindex="0"';
         } else {
             $row_attr  = ' role="row"';
             $row_attr .= ' data-unit-id="' . esc_attr((string) $post_id) . '"';
@@ -2296,9 +2515,19 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
         $output .= '<div class="' . esc_attr(implode(' ', $row_classes)) . '"' . $row_attr . '>';
 
+        $toggle_idx = $is_accordion ? self::toggle_column_index($columns) : null;
+        $cells      = [];
         foreach ($columns as $idx => $col) {
-            $output .= self::render_cell($col, $idx, $is_restricted, $is_accordion);
+            $cells[$idx] = self::render_cell($col, $idx, $is_restricted, $is_accordion);
         }
+        if ($toggle_idx !== null && isset($cells[$toggle_idx])) {
+            $cells[$toggle_idx] = self::inject_row_toggle(
+                $cells[$toggle_idx],
+                $content_id,
+                self::toggle_label($cells)
+            );
+        }
+        $output .= implode('', $cells);
 
         $output .= '</div>'; // .immoadmin-table-row
 
@@ -2309,17 +2538,91 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
             // styling class via _hidden._cssClasses (see get_nestable_item()).
             // For loop-iteration rendering, Frontend::render_children must be
             // called via the element wrapper.
-            $output .= '<div class="immoadmin-accordion-panel" role="region"'
+            //
+            // Inside a rowgroup only rows are valid (was role="region"): the
+            // panel is a row, its content one full-width cell. The cell
+            // wrapper is display:contents, so children lay out exactly as
+            // before.
+            $output .= '<div class="immoadmin-accordion-panel" role="row"'
                 . ' id="' . esc_attr($content_id) . '"'
                 . ' aria-labelledby="' . esc_attr($title_id) . '"'
                 . '>';
+            $output .= '<div class="immoadmin-accordion-panel__cell" role="cell">';
             $output .= self::render_accordion_children($element_instance);
+            $output .= '</div>';
             $output .= '</div>';
 
             $output .= '</div>'; // .accordion-item
         }
 
         return $output;
+    }
+
+    /**
+     * Column that hosts the keyboard toggle of an openable row. Prefers a
+     * column that is never hidden (mobile_visible on, no "Ausblenden auf"):
+     * the "Akkordion-Pfeil" icon column first, else the first such column;
+     * only if every column can be hidden, the arrow / first column. Wherever
+     * the host cell is display:none at the current width anyway,
+     * units-table.js moves the button into the row's first visible cell.
+     */
+    public static function toggle_column_index(array $columns) {
+        $always = function ($col) {
+            return is_array($col) && !empty($col['mobile_visible']) && empty($col['hide_on_breakpoints']);
+        };
+        $is_arrow = function ($col) {
+            return is_array($col) && ($col['type'] ?? '') === 'icon' && !empty($col['accordion_toggle']);
+        };
+        foreach ([[$is_arrow, $always], [$always], [$is_arrow], []] as $tests) {
+            foreach ($columns as $idx => $col) {
+                foreach ($tests as $test) {
+                    if (!$test($col)) {
+                        continue 2;
+                    }
+                }
+                return $idx;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Accessible name of the toggle: "Details zu <text of the first cell
+     * that has text>", e.g. "Details zu 1" / "Details zu Top 1". Built from
+     * the already rendered (and already redacted) cells.
+     */
+    public static function toggle_label(array $cells) {
+        foreach ($cells as $html) {
+            $text = trim(preg_replace('/\s+/u', ' ', html_entity_decode(wp_strip_all_tags((string) $html), ENT_QUOTES, 'UTF-8')));
+            if ($text !== '' && $text !== '—') {
+                /* translators: %s: first cell of the row, e.g. "Top 1" */
+                return sprintf(__('Details zu %s', 'immoadmin'), $text);
+            }
+        }
+        return __('Details', 'immoadmin');
+    }
+
+    /**
+     * Put the row's toggle button at the start of a rendered cell.
+     *
+     * A real <button> (visually hidden, focus ring drawn on the row by the
+     * CSS): focusable, Enter/Space for free, and the right place for
+     * aria-expanded / aria-controls. units-table.js keeps aria-expanded in
+     * line with the row's .brx-open.
+     */
+    private static function inject_row_toggle($cell_html, $content_id, $label = '') {
+        $label  = $label !== '' ? $label : __('Details', 'immoadmin');
+        $button = '<button type="button" class="immoadmin-row-toggle"'
+            . ' aria-expanded="false"'
+            . ' aria-controls="' . esc_attr($content_id) . '"'
+            . ' aria-label="' . esc_attr($label) . '">'
+            . esc_html($label)
+            . '</button>';
+        $pos = strpos($cell_html, '>');
+        if ($pos === false) {
+            return $cell_html;
+        }
+        return substr($cell_html, 0, $pos + 1) . $button . substr($cell_html, $pos + 1);
     }
 
     /**
@@ -2340,7 +2643,7 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
     /**
      * Render a single cell.
      *
-     * $is_restricted (reserved / sold / rented, see render_row()) redacts the
+     * $is_restricted (every non-public status incl. empty, see render_row()) redacts the
      * sensitive columns: the DD is never resolved, so no price and no Exposé
      * URL exists at the point where markup gets built — nothing to fish out of
      * the DOM, and nothing left in data-sort-value / href / aria-label either.
@@ -2466,8 +2769,10 @@ class ImmoAdmin_Units_Table extends \Bricks\Element {
 
             case 'status_dot':
                 $status_class = sanitize_html_class(self::status_class_source($col, $resolved));
+                // role="img": aria-label on a plain span is ignored by most
+                // screen readers (v2.15.4).
                 $inner = '<span class="immoadmin-status-dot is-' . esc_attr($status_class) .
-                    '" aria-label="' . esc_attr($resolved) . '" title="' . esc_attr($resolved) . '"></span>';
+                    '" role="img" aria-label="' . esc_attr($resolved) . '" title="' . esc_attr($resolved) . '"></span>';
                 break;
 
             case 'icon':

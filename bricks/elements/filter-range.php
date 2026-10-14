@@ -15,8 +15,9 @@
  *
  * Wert-Position (v2.15.1): "follow" puts each value label under its handle
  * and moves it along (filters.js + filter-logic.js valueLabelLayout());
- * "fixed" is the original left/right row. See value_position() for why
- * saved elements keep "fixed" although new ones start with "follow".
+ * "fixed" is the original left/right row. Since v2.15.4 "follow" is also
+ * what an element WITHOUT a stored value_position shows (see
+ * value_position()); only an explicit "fixed" keeps the left/right row.
  *
  * @package ImmoAdmin\Bricks
  */
@@ -138,6 +139,7 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
             'max'         => 4,
             'inline'      => true,
             'placeholder' => '0',
+            'description' => esc_html__('Gilt auch für „Kurz“ (280k): leer = automatisch (283,5k / 1,25 Mio.), sonst genau so viele Stellen.', 'immoadmin'),
         ];
         $this->controls['prefix'] = [
             'group'          => 'format',
@@ -259,17 +261,11 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
         ];
 
         // ---------- Werte-Anzeige ----------
-        // 'default' => 'follow' reaches NEWLY added elements only. Verified
-        // against Bricks 2.3.9 (builder main.min.js): control defaults are
-        // copied into an element's settings when it is ADDED — on drag
-        // (`for (a in controls) if (controls[a].hasOwnProperty("default"))
-        // settings[a] = controls[a].default`) and on click-add/command palette
-        // (same, for settings not yet set). The page then stores
-        // value_position = 'follow'. On the frontend Bricks\Element takes the
-        // stored settings as they are — no merge with control defaults — so a
-        // saved element without the key renders exactly as before ("fixed",
-        // see value_position()). The placeholder shows that legacy state in
-        // the panel. Same mechanism as filter_group (v2.14.0 → v2.15.0).
+        // v2.15.4: "follow" for every element without a stored value — new
+        // ones get it stored on add ('default', Bricks 2.3.9 copies control
+        // defaults into the settings of an ADDED element), saved ones without
+        // the key resolve to it in value_position(). The placeholder says the
+        // same. Only an explicitly chosen "fixed" keeps the left/right row.
         $this->controls['value_position'] = [
             'group'       => 'values',
             'label'       => esc_html__('Wert-Position', 'immoadmin'),
@@ -281,8 +277,8 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
             'inline'      => true,
             'default'     => 'follow',
             'clearable'   => false,
-            'placeholder' => esc_html__('Links/Rechts fest', 'immoadmin'),
-            'description' => esc_html__('Mitlaufend: jeder Wert steht zentriert unter seinem Griff und wandert beim Ziehen mit; kommen sich die Werte zu nahe, werden sie zu einem Wert („70 – 80 m²“) zusammengefasst.', 'immoadmin'),
+            'placeholder' => esc_html__('Unter den Griffen (mitlaufend)', 'immoadmin'),
+            'description' => esc_html__('Mitlaufend (Standard): jeder Wert steht zentriert unter seinem Griff und wandert beim Ziehen mit; kommen sich die Werte zu nahe, werden sie zu einem Wert („70 – 80 m²“) zusammengefasst.', 'immoadmin'),
         ];
         $this->controls['valueTypography'] = [
             'group' => 'values',
@@ -352,6 +348,10 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
         }
         if (isset($settings['decimals']) && is_numeric($settings['decimals'])) {
             $fmt['decimals'] = max(0, min(4, (int) $settings['decimals']));
+            if ($fmt['mode'] === 'k') {
+                // v2.15.4: an explicit value now also reaches "Kurz".
+                $fmt['kDecimals'] = $fmt['decimals'];
+            }
         }
         if (isset($settings['prefix']) && is_string($settings['prefix']) && $settings['prefix'] !== '') {
             $fmt['prefix'] = $settings['prefix'];
@@ -380,13 +380,12 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
     }
 
     /**
-     * 'follow' | 'fixed'. Only an explicitly stored 'follow' moves the
-     * labels: an absent key is an element saved before v2.15.1 and keeps its
-     * left/right row (new elements get 'follow' stored on add — see the
-     * value_position control).
+     * 'follow' | 'fixed'. Since v2.15.4 only an explicitly stored 'fixed'
+     * keeps the left/right row; an absent key (elements saved before
+     * v2.15.1), an empty or unknown value → 'follow'.
      */
     public static function value_position($settings) {
-        return (is_array($settings) && ($settings['value_position'] ?? '') === 'follow') ? 'follow' : 'fixed';
+        return (is_array($settings) && ($settings['value_position'] ?? '') === 'fixed') ? 'fixed' : 'follow';
     }
 
     /**
@@ -431,7 +430,8 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
         }
         $this->announce($f['field'] === '__custom' ? $f['key'] : '');
 
-        $rows   = ImmoAdmin_Filter_Data::rows($f['field'] === '__custom' ? [$f['key']] : []);
+        // Bounds from the units of the targeted tables' buildings only (v2.15.4).
+        $rows   = ImmoAdmin_Filter_Data::rows_for_filter($f['field'] === '__custom' ? [$f['key']] : [], $this->get_targets(), $group);
         $config = self::config_for($settings, $rows);
         if ($config === null) {
             return $this->render_element_placeholder(['title' => esc_html__('Keine Werte gefunden – nach dem ersten Sync erscheint hier der Bereich.', 'immoadmin')]);
@@ -471,7 +471,7 @@ class ImmoAdmin_Filter_Range extends ImmoAdmin_Filter_Element {
             . ' aria-valuetext="' . esc_attr($max_text) . '">';
         echo '</div>';
         $follow = self::value_position($settings) === 'follow';
-        // Fixed: byte-identical to v2.15.0 (tests/fixtures/filter-range-baseline.json).
+        // Explicit "fixed": byte-identical to v2.15.0 (tests/fixtures/filter-range-baseline.json).
         echo '<div class="value-wrap"' . ($follow ? ' data-value-position="follow"' : '') . ' aria-hidden="true">';
         echo '<span class="lower">' . ($label_min !== '' ? '<span class="label">' . esc_html($label_min) . '</span>' : '')
             . '<span class="value">' . esc_html($min_text) . '</span></span>';

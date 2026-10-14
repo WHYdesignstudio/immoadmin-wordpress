@@ -1,0 +1,13 @@
+[
+    { "value": 283500, "fmt": { "mode": "k", "kDecimals": 0 }, "expected": "284k" },
+    { "value": 283500, "fmt": { "mode": "k", "kDecimals": 2 }, "expected": "283,50k" },
+    { "value": 280000, "fmt": { "mode": "k", "kDecimals": 1 }, "expected": "280,0k" },
+    { "value": 1250000, "fmt": { "mode": "k", "kDecimals": 1 }, "expected": "1,3 Mio." },
+    { "value": 1250000, "fmt": { "mode": "k", "kDecimals": 0 }, "expected": "1 Mio." },
+    { "value": 1000000, "fmt": { "mode": "k", "kDecimals": 3, "suffix": " €" }, "expected": "1,000 Mio. €" },
+    { "value": 283500, "fmt": { "mode": "k", "kDecimals": 9 }, "expected": "283,5000k" },
+    { "value": 283500, "fmt": { "mode": "k" }, "expected": "283,5k" },
+    { "value": 283500, "fmt": { "mode": "k", "kDecimals": "" }, "expected": "283,5k" },
+    { "value": 999, "fmt": { "mode": "k", "kDecimals": 1, "decimals": 1 }, "expected": "999,0" },
+    { "value": 283500, "fmt": { "mode": "thousands", "kDecimals": 2 }, "expected": "283.500" }
+]

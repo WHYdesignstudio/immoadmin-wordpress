@@ -3,9 +3,168 @@
  *
  * Wraps in BricksFunction so we get re-init after Bricks AJAX swaps.
  * Pure vanilla JS, no jQuery.
+ *
+ * The DOM-free helpers at the top (Logic) are exported for plain-node tests
+ * (tests/units-table-logic.test.js); the browser part below only runs when
+ * there is a document.
  */
-(function () {
+(function (root) {
     'use strict';
+
+    // ======================================================================
+    // Pure helpers — no document access. They only read .classList,
+    // .children and .parentElement, so tests can feed plain objects.
+    // ======================================================================
+
+    function hasClass(node, cls) {
+        return !!(node && node.classList && node.classList.contains(cls));
+    }
+
+    // A unit is one of two shapes:
+    //   .accordion-item                 — the normal, expandable row
+    //   .immoadmin-table-row (bare)     — reserved / sold / rented, or table
+    //                                     mode; no accordion wrapper
+    // The row nested inside an .accordion-item is that item's own title row
+    // (.accordion-title-wrapper), not a unit of its own.
+    function isUnitNode(node) {
+        if (hasClass(node, 'accordion-item')) return true;
+        return hasClass(node, 'immoadmin-table-row')
+            && !hasClass(node, 'accordion-title-wrapper')
+            && !hasClass(node, 'immoadmin-table-header');
+    }
+
+    /**
+     * This grid's own units, in document order.
+     *
+     * Walks .children instead of querySelectorAll(): the detail panel can
+     * hold anything — a Bricks "Accordion" element (.accordion-item /
+     * .accordion-title-wrapper), even another units table — and none of that
+     * may be mistaken for a row of THIS table. Panels, nested tables and the
+     * header are never entered.
+     *
+     * Bricks' "load more" appends each AJAX batch right after the last
+     * `.brxe-{id}` element (its query trail), which is the title row INSIDE
+     * the last .accordion-item. So a unit can sit one level deep per page in
+     * another unit; descending into units (not into panels) finds those.
+     */
+    function collectUnits(grid) {
+        var out = [];
+        (function walk(parent) {
+            var kids = parent && parent.children ? parent.children : [];
+            for (var i = 0; i < kids.length; i++) {
+                var n = kids[i];
+                if (hasClass(n, 'immoadmin-accordion-panel') || hasClass(n, 'immoadmin-table')
+                    || hasClass(n, 'immoadmin-table-header') || hasClass(n, 'accordion-title-wrapper')) {
+                    continue;
+                }
+                if (isUnitNode(n)) {
+                    out.push(n);
+                    walk(n);
+                }
+            }
+        })(grid);
+        return out;
+    }
+
+    /**
+     * True if node belongs to THIS grid's row structure: walking up to the
+     * grid crosses no accordion panel and no other table.
+     */
+    function isOwnNode(node, grid) {
+        var n = node;
+        while (n && n !== grid) {
+            if (n !== node && (hasClass(n, 'immoadmin-accordion-panel') || hasClass(n, 'immoadmin-table'))) {
+                return false;
+            }
+            n = n.parentElement;
+        }
+        return n === grid && !!grid;
+    }
+
+    /**
+     * Zebra flags for the VISIBLE units, in order. Striped = 1st, 3rd, 5th …
+     * visible unit — the same phase the old `.accordion-item:nth-of-type(even)`
+     * produced on saved pages (the header was sibling #1, so the first unit
+     * was "even"), now without hidden / filtered / restricted rows breaking it.
+     */
+    function zebraFlags(count) {
+        var out = [];
+        for (var i = 0; i < count; i++) out.push(i % 2 === 0);
+        return out;
+    }
+
+    function compareSortValues(av, bv, dir) {
+        av = av == null ? '' : String(av);
+        bv = bv == null ? '' : String(bv);
+        var an = parseFloat(av);
+        var bn = parseFloat(bv);
+        var cmp;
+        if (!isNaN(an) && !isNaN(bn) && av !== '' && bv !== '') {
+            cmp = an - bn;
+        } else {
+            cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' });
+        }
+        return dir === 'desc' ? -cmp : cmp;
+    }
+
+    /** ?key=VALUE or #key-VALUE → VALUE ('' when absent). */
+    function requestedUnit(href, key) {
+        key = key || 'unit';
+        try {
+            var url = new URL(href);
+            var v = url.searchParams.get(key);
+            if (v) return v;
+            var prefix = '#' + key + '-';
+            if (url.hash.indexOf(prefix) === 0) return decodeURIComponent(url.hash.slice(prefix.length));
+        } catch (_) {
+            return '';
+        }
+        return '';
+    }
+
+    /**
+     * Does a grid with these resolved tracks (getComputedStyle → px list),
+     * column gap and content width overflow? 1px tolerance for rounding.
+     */
+    function tracksOverflow(templateColumns, columnGap, available) {
+        var sum = 0, n = 0;
+        String(templateColumns || '').split(/\s+/).forEach(function (t) {
+            var v = parseFloat(t);
+            if (!isNaN(v)) { sum += v; n++; }
+        });
+        if (!n) return false;
+        var gap = parseFloat(columnGap);
+        if (!isNaN(gap) && n > 1) sum += gap * (n - 1);
+        return sum > available + 1;
+    }
+
+    var INTERACTIVE = 'a[href], button, input, select, textarea, summary, label, [contenteditable]:not([contenteditable="false"])';
+
+    var Logic = {
+        isUnitNode: isUnitNode,
+        collectUnits: collectUnits,
+        isOwnNode: isOwnNode,
+        zebraFlags: zebraFlags,
+        compareSortValues: compareSortValues,
+        requestedUnit: requestedUnit,
+        tracksOverflow: tracksOverflow,
+        INTERACTIVE: INTERACTIVE
+    };
+
+    if (typeof module === 'object' && module.exports) {
+        module.exports = Logic;
+    }
+    if (typeof document === 'undefined') {
+        return;
+    }
+    root.ImmoAdminUnitsTableLogic = Logic;
+
+    // ======================================================================
+    // Browser part
+    // ======================================================================
+
+    var RESTRICTED = ['reserved', 'sold', 'rented'];
+    var FILTER_HIDDEN = 'data-immoadmin-filter-hidden';
 
     function initImmoUnitsTable(table) {
         if (!table || table.dataset.immoBound === '1') return;
@@ -15,107 +174,243 @@
         var inlineSort = table.dataset.inlineSort === '1';
         var urlState = table.dataset.urlState === '1';
 
-        // ------------------------------------------------------------------
-        // Scroll hint: show the animated swipe overlay only when the table
-        // actually overflows, then hide on first scroll or after a timeout.
-        // Hint markup is rendered server-side only when both horizontal_scroll
-        // and scroll_hint_enabled controls are on.
-        // ------------------------------------------------------------------
         initScrollHint(table);
 
-        // ------------------------------------------------------------------
-        // Bricks' "load more" appends each AJAX batch INSIDE the last rendered
-        // loop item instead of into the grid, so rows from page 2 onwards end
-        // up nested one level deep (page 3 inside page 2, and so on). Nothing
-        // looks wrong — the rows use display:contents, so the grid lays them
-        // out exactly as before — but anything walking grid.children then only
-        // ever sees the first batch. Sorting silently applied to page 1 only.
-        //
-        // Hoisting every row back to be a direct child of the grid keeps the
-        // DOM matching what the markup claims, so the sorter needs no special
-        // case. Re-appending in document order preserves the current order.
-        // ------------------------------------------------------------------
-        var gridEl = table.querySelector('.immoadmin-table');
+        // The grid of THIS element (direct path, never one nested in a panel).
+        var gridEl = table.querySelector(':scope > .immoadmin-table, :scope > .immoadmin-table-scroll > .immoadmin-table');
+        if (!gridEl) return;
 
-        // One unit is one of two shapes, and both have to be recognised:
-        //   .accordion-item                    — the normal, expandable row
-        //   .immoadmin-table-row (bare)        — reserved / sold / rented, which
-        //                                        render without an accordion
-        // The row nested inside an .accordion-item is that item's own title
-        // row, not a unit of its own — it carries .accordion-title-wrapper,
-        // which is what tells the two apart. Matching only .accordion-item (as
-        // this did before) left restricted rows stuck inside whichever row
-        // Bricks had dropped them into, which is exactly where they then
-        // appeared on screen: "Mackgasse 11 Top 2" sitting inside "Mackgasse 9
-        // Top 37".
-        function collectRows() {
+        function units() {
+            return collectUnits(gridEl);
+        }
+
+        // Title row of a unit (the unit itself for a bare row).
+        function rowOf(unit) {
+            if (hasClass(unit, 'immoadmin-table-row')) return unit;
+            var kids = unit.children;
+            for (var i = 0; i < kids.length; i++) {
+                if (hasClass(kids[i], 'immoadmin-table-row')) return kids[i];
+            }
+            return null;
+        }
+
+        function ownCells(row) {
             var out = [];
-            if (!gridEl) return out;
-            var nodes = gridEl.querySelectorAll('.accordion-item, .immoadmin-table-row');
-            for (var i = 0; i < nodes.length; i++) {
-                var n = nodes[i];
-                if (n.classList.contains('accordion-item')) { out.push(n); continue; }
-                if (n.classList.contains('immoadmin-table-header')) continue;
-                if (n.classList.contains('accordion-title-wrapper')) continue;
-                out.push(n);
+            if (!row) return out;
+            for (var i = 0; i < row.children.length; i++) {
+                if (hasClass(row.children[i], 'immoadmin-table-cell')) out.push(row.children[i]);
             }
             return out;
         }
 
-        function normalizeRows() {
-            if (!gridEl) return;
-            var rows = collectRows();
-            var nested = false;
-            for (var i = 0; i < rows.length; i++) {
-                if (rows[i].parentElement !== gridEl) { nested = true; break; }
+        function toggleButtonOf(row) {
+            var cells = ownCells(row);
+            for (var i = 0; i < cells.length; i++) {
+                var b = cells[i].querySelector(':scope > .immoadmin-row-toggle');
+                if (b) return b;
             }
-            // Bail when nothing is nested — this runs from a MutationObserver,
-            // and re-appending on every mutation would both churn the DOM and
-            // retrigger the observer forever.
-            if (!nested) return;
-            for (var j = 0; j < rows.length; j++) {
-                gridEl.appendChild(rows[j]);
-            }
+            return null;
         }
 
-        if (gridEl && typeof MutationObserver === 'function') {
+        // Hoist units Bricks' load-more nested into another unit back to be
+        // direct grid children (in document order = current order).
+        function normalizeRows() {
+            var list = units();
+            var nested = false;
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].parentElement !== gridEl) { nested = true; break; }
+            }
+            // Bail when nothing is nested — this runs from a MutationObserver,
+            // and re-appending on every mutation would churn the DOM forever.
+            if (!nested) return;
+            for (var j = 0; j < list.length; j++) gridEl.appendChild(list[j]);
+        }
+
+        function isHidden(unit) {
+            if (unit.hasAttribute(FILTER_HIDDEN)) return true;
+            var st = window.getComputedStyle ? window.getComputedStyle(unit) : null;
+            return !!(st && st.display === 'none');
+        }
+
+        // Zebra (v2.15.4): class on the visual row, recomputed after init,
+        // sort, filter and load-more, so hidden rows never shift the pattern.
+        function applyZebra() {
+            var visible = [];
+            units().forEach(function (u) {
+                var row = rowOf(u);
+                if (!row) return;
+                if (isHidden(u)) { row.classList.remove('is-even'); return; }
+                visible.push(row);
+            });
+            var flags = zebraFlags(visible.length);
+            for (var i = 0; i < visible.length; i++) visible[i].classList.toggle('is-even', flags[i]);
+        }
+
+        // Keep the toggle button's aria-expanded in line with the row state
+        // (.brx-open on the title row is the single source of truth — the
+        // filter script closes rows by removing it).
+        // Closed panels get `inert` (v2.15.4): visibility:hidden alone is
+        // not enough — e.g. Splide sets .splide.is-initialized{visibility:
+        // visible}, which un-hides slider arrows inside a closed panel for Tab
+        // and screen readers. Not in the builder, where the first panel is
+        // shown open for styling and must stay clickable.
+        var inBuilder = table.getAttribute('data-builder') === '1'
+            || (document.body && document.body.getAttribute('data-builder-window') === 'iframe');
+
+        function panelOf(row) {
+            var n = row ? row.nextElementSibling : null;
+            return hasClass(n, 'immoadmin-accordion-panel') ? n : null;
+        }
+
+        function setPanelInert(row, open) {
+            var panel = panelOf(row);
+            if (!panel) return;
+            if (open || inBuilder) panel.removeAttribute('inert');
+            else panel.setAttribute('inert', '');
+        }
+
+        // Keep button + panel in line with the row state (.brx-open on the
+        // title row is the single source of truth — the filter script closes
+        // rows by removing it).
+        function syncToggles() {
+            units().forEach(function (u) {
+                var row = rowOf(u);
+                if (!row) return;
+                var open = hasClass(row, 'brx-open');
+                var btn = toggleButtonOf(row);
+                if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                if (row.hasAttribute('aria-expanded')) row.removeAttribute('aria-expanded');
+                setPanelInert(row, open);
+            });
+        }
+
+        // The toggle button must stay reachable when its cell's column is
+        // hidden at this width ("Ausblenden auf" / mobile): move it into the
+        // row's first visible cell.
+        function relocateToggles() {
+            units().forEach(function (u) {
+                var row = rowOf(u);
+                var btn = row ? toggleButtonOf(row) : null;
+                if (!btn || btn.parentElement.getClientRects().length) return;
+                var cells = ownCells(row);
+                for (var i = 0; i < cells.length; i++) {
+                    if (cells[i].getClientRects().length) {
+                        cells[i].insertBefore(btn, cells[i].firstChild);
+                        return;
+                    }
+                }
+            });
+        }
+
+        // Whole words (v2.15.4). The CSS default breaks anywhere (the old
+        // look — can't overflow, also without JS). .is-roomy switches to
+        // whole words, but only when every column then still fits. The test
+        // adds the class, reads the resolved tracks and takes it away again
+        // in the same task, so nothing paints in between and the class only
+        // changes when the result does. Not in horizontal-scroll mode (no
+        // wrapping in max-content / auto tracks anyway).
+        var isScroll = hasClass(gridEl.parentElement, 'immoadmin-table-scroll');
+        function fitCheck() {
+            if (isScroll || !window.getComputedStyle) return;
+            gridEl.classList.add('is-roomy');
+            var cs = window.getComputedStyle(gridEl);
+            var available = gridEl.clientWidth
+                - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+            var roomy = available > 0 && !tracksOverflow(cs.gridTemplateColumns, cs.columnGap, available);
+            if (!roomy) gridEl.classList.remove('is-roomy');
+        }
+
+        // One layout pass per frame at most.
+        var layoutQueued = false;
+        function scheduleLayout() {
+            if (layoutQueued) return;
+            layoutQueued = true;
+            var run = function () { layoutQueued = false; relocateToggles(); fitCheck(); };
+            if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(run);
+            else setTimeout(run, 16);
+        }
+
+        function refresh() {
             normalizeRows();
-            new MutationObserver(normalizeRows).observe(gridEl, { childList: true, subtree: true });
+            applyZebra();
+            syncToggles();
+            scheduleLayout();
+        }
+
+        var pending = false;
+        function scheduleRefresh() {
+            if (pending) return;
+            pending = true;
+            var run = function () { pending = false; refresh(); };
+            if (typeof Promise === 'function') Promise.resolve().then(run); else setTimeout(run, 0);
+        }
+
+        refresh();
+
+        if (typeof MutationObserver === 'function') {
+            // subtree is needed for load-more (batches land inside the last
+            // .accordion-item); only mutations at grid level or one below
+            // count — anything inside a panel (nested accordion, slider …)
+            // is ignored.
+            new MutationObserver(function (records) {
+                for (var i = 0; i < records.length; i++) {
+                    var t = records[i].target;
+                    if (t === gridEl || (t && t.parentElement === gridEl && !hasClass(t, 'immoadmin-table-header'))) {
+                        scheduleRefresh();
+                        return;
+                    }
+                }
+            }).observe(gridEl, { childList: true, subtree: true });
+        }
+        document.addEventListener('immoadmin/filter/applied', scheduleRefresh);
+        if (typeof ResizeObserver === 'function') {
+            // Watch the element's WIDTH only: .is-roomy changes the height
+            // (rows re-wrap), which must not trigger another pass. Work is
+            // deferred to rAF, never done inside the observer callback.
+            var lastWidth = -1;
+            new ResizeObserver(function (entries) {
+                var w = entries[0] && entries[0].contentRect ? Math.round(entries[0].contentRect.width) : -1;
+                if (w === lastWidth) return;
+                lastWidth = w;
+                scheduleLayout();
+            }).observe(table);
+        }
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(scheduleLayout);
         }
 
         // ------------------------------------------------------------------
-        // Accordion toggle (delegated; survives DOM swaps via BricksFunction
-        // re-init).
+        // Accordion toggle. The focusable element is the visually hidden
+        // <button class="immoadmin-row-toggle"> in each openable row (rows
+        // are display:contents and can't take focus); Enter / Space on it
+        // fire a native click, so one click handler covers mouse + keyboard.
         // ------------------------------------------------------------------
         if (mode === 'accordion') {
             table.addEventListener('click', function (e) {
-                var trigger = e.target.closest('.accordion-title-wrapper');
-                if (!trigger || !table.contains(trigger)) return;
-                // Don't toggle if user clicked an interactive child (link, button).
-                if (e.target.closest('a, button, input, select, textarea')) return;
-                toggleRow(trigger);
-            });
-            table.addEventListener('keydown', function (e) {
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                var trigger = e.target.closest('.accordion-title-wrapper');
-                if (!trigger) return;
-                e.preventDefault();
+                var target = e.target;
+                if (!target || !target.closest) return;
+                var trigger = target.closest('.accordion-title-wrapper');
+                if (!trigger || !isOwnNode(trigger, gridEl)) return;
+                var toggleBtn = target.closest('.immoadmin-row-toggle');
+                if (!toggleBtn) {
+                    // Don't toggle if the user clicked an interactive child.
+                    var interactive = target.closest(INTERACTIVE);
+                    if (interactive && trigger.contains(interactive)) return;
+                }
                 toggleRow(trigger);
             });
         }
 
-        // Reserved / sold / rented rows are rendered without a panel, without
-        // tabindex and without .accordion-title-wrapper, so no toggle should
-        // ever reach them. Belt & braces: read the status the server wrote and
-        // refuse anyway — a stray class from a third-party script (or a Bricks
-        // AJAX swap racing us) must not be able to resurrect the toggle.
-        var RESTRICTED = ['reserved', 'sold', 'rented'];
-
         function isRestricted(trigger) {
-            // data-status sits on .accordion-item in accordion mode and on the
-            // row itself in table mode; closest() covers both.
             var scope = trigger.closest('[data-status]');
             return !!scope && RESTRICTED.indexOf(scope.getAttribute('data-status')) !== -1;
+        }
+
+        function setOpen(row, open) {
+            row.classList.toggle('brx-open', open);
+            var btn = toggleButtonOf(row);
+            if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            setPanelInert(row, open);
         }
 
         function toggleRow(trigger) {
@@ -123,26 +418,21 @@
 
             var willOpen = !trigger.classList.contains('brx-open');
 
-            // Single-open mode: before opening this row, close any other.
+            // Single-open: close this table's other rows only.
             if (willOpen && table.dataset.singleOpen === '1') {
-                var others = table.querySelectorAll('.accordion-title-wrapper.brx-open');
-                others.forEach(function (o) {
-                    if (o !== trigger) {
-                        o.classList.remove('brx-open');
-                        o.setAttribute('aria-expanded', 'false');
-                    }
+                units().forEach(function (u) {
+                    var r = rowOf(u);
+                    if (r && r !== trigger && hasClass(r, 'brx-open')) setOpen(r, false);
                 });
             }
 
-            trigger.classList.toggle('brx-open', willOpen);
-            trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            setOpen(trigger, willOpen);
 
             var item = trigger.closest('.accordion-item');
             var unitId = item ? item.getAttribute('data-unit-id') : null;
             var urlValue = item ? item.getAttribute('data-url-value') : null;
             var urlKey = table.dataset.urlKey || 'unit';
 
-            // Dispatch Bricks-compat custom event.
             document.dispatchEvent(new CustomEvent(
                 willOpen ? 'bricks/accordion/open' : 'bricks/accordion/close',
                 { detail: { elementId: table.dataset.bricksQueryId || '', unitId: unitId } }
@@ -162,123 +452,99 @@
         // ------------------------------------------------------------------
         // Inline column sort — client-side reorder.
         // ------------------------------------------------------------------
-        if (inlineSort) {
-            var headerRow = table.querySelector('.immoadmin-table-header');
-            if (headerRow) {
-                headerRow.addEventListener('click', function (e) {
-                    var th = e.target.closest('.immoadmin-table-cell-header[data-sortable="1"]');
-                    if (!th) return;
-                    sortByHeader(th);
-                });
-                headerRow.addEventListener('keydown', function (e) {
-                    if (e.key !== 'Enter' && e.key !== ' ') return;
-                    var th = e.target.closest('.immoadmin-table-cell-header[data-sortable="1"]');
-                    if (!th) return;
-                    e.preventDefault();
-                    sortByHeader(th);
-                });
-            }
+        var headerRow = gridEl.querySelector(':scope > .immoadmin-table-header');
+        if (inlineSort && headerRow) {
+            headerRow.addEventListener('click', function (e) {
+                var th = e.target.closest('.immoadmin-table-cell-header[data-sortable="1"]');
+                if (th) sortByHeader(th);
+            });
+            headerRow.addEventListener('keydown', function (e) {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                var th = e.target.closest('.immoadmin-table-cell-header[data-sortable="1"]');
+                if (!th) return;
+                var interactive = e.target.closest(INTERACTIVE);
+                if (interactive && th.contains(interactive)) return;
+                e.preventDefault();
+                sortByHeader(th);
+            });
         }
 
         function sortByHeader(th) {
-            var grid = table.querySelector('.immoadmin-table');
-            if (!grid) return;
-
-            // Belt & braces: the observer normally has this done already, but
-            // a click landing in the same tick as a load-more insert would
-            // otherwise sort a partial row list.
             normalizeRows();
 
             var colIndex = parseInt(th.dataset.colIndex || '0', 10);
-            var current = th.dataset.sortDirection || '';
-            var dir = current === 'asc' ? 'desc' : 'asc';
+            var dir = th.dataset.sortDirection === 'asc' ? 'desc' : 'asc';
 
-            // Reset all other headers.
-            grid.querySelectorAll('.immoadmin-table-cell-header').forEach(function (h) {
-                if (h !== th) h.removeAttribute('data-sort-direction');
-            });
-            th.setAttribute('data-sort-direction', dir);
-
-            // Same row set the normalizer works on, so reserved / sold / rented
-            // rows take part in the sort instead of staying put while the rest
-            // reorders around them.
-            var units = collectRows();
-            if (!units.length) return;
-
-            units.sort(function (a, b) {
-                var av = readSortValue(a, colIndex);
-                var bv = readSortValue(b, colIndex);
-
-                var an = parseFloat(av);
-                var bn = parseFloat(bv);
-                var bothNumeric = !isNaN(an) && !isNaN(bn) && av !== '' && bv !== '';
-
-                var cmp;
-                if (bothNumeric) {
-                    cmp = an - bn;
-                } else {
-                    cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+            if (headerRow) {
+                for (var i = 0; i < headerRow.children.length; i++) {
+                    var h = headerRow.children[i];
+                    if (h === th) continue;
+                    h.removeAttribute('data-sort-direction');
+                    if (h.getAttribute('data-sortable') === '1') h.setAttribute('aria-sort', 'none');
                 }
-                return dir === 'asc' ? cmp : -cmp;
-            });
+            }
+            th.setAttribute('data-sort-direction', dir);
+            th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
 
-            units.forEach(function (u) { grid.appendChild(u); });
+            var list = units();
+            if (!list.length) return;
+
+            list.sort(function (a, b) {
+                return compareSortValues(readSortValue(a, colIndex), readSortValue(b, colIndex), dir);
+            });
+            list.forEach(function (u) { gridEl.appendChild(u); });
+            applyZebra();
         }
 
         function readSortValue(unit, colIndex) {
-            // In accordion mode the row is .accordion-title-wrapper inside .accordion-item;
-            // in table mode the unit IS the row.
-            var row = unit.classList.contains('immoadmin-table-row')
-                ? unit
-                : unit.querySelector('.immoadmin-table-row');
-            if (!row) return '';
-            var cell = row.querySelector('.immoadmin-table-cell[data-col-index="' + colIndex + '"]');
-            if (!cell) return '';
-            var v = cell.getAttribute('data-sort-value');
-            return v == null ? '' : v;
+            var cells = ownCells(rowOf(unit));
+            for (var i = 0; i < cells.length; i++) {
+                if (cells[i].getAttribute('data-col-index') === String(colIndex)) {
+                    var v = cells[i].getAttribute('data-sort-value');
+                    return v == null ? '' : v;
+                }
+            }
+            return '';
         }
 
         // ------------------------------------------------------------------
-        // URL state on load — open the accordion whose data-url-value matches
-        // ?{urlKey}=VALUE (or #{urlKey}-VALUE), then scroll it into view.
-        // urlKey is configurable per element (default "unit").
+        // URL state on load — only when "URL-State aktiv" is on: open the
+        // unit whose data-url-value matches ?{urlKey}=VALUE (or
+        // #{urlKey}-VALUE), highlight it and scroll its first visible cell
+        // into view (the row itself is display:contents and has no box).
         // ------------------------------------------------------------------
-        var urlKeyOnLoad = table.dataset.urlKey || 'unit';
-        var requested = null;
-        try {
-            var urlObj = new URL(window.location.href);
-            requested = urlObj.searchParams.get(urlKeyOnLoad);
-            if (!requested && location.hash.indexOf('#' + urlKeyOnLoad + '-') === 0) {
-                requested = location.hash.slice(urlKeyOnLoad.length + 2);
-            }
-        } catch (_) {
-            requested = null;
-        }
-
-        if (requested) {
-            // Match by data-url-value (per-row resolved DD); fall back to
-            // data-unit-id for backwards compat with older rendered pages.
-            var item = table.querySelector('[data-url-value="' + cssEscape(requested) + '"]') ||
-                       table.querySelector('[data-unit-id="' + cssEscape(requested) + '"]');
-            if (item) {
-                var trigger = item.querySelector('.accordion-title-wrapper') ||
-                    (item.classList.contains('accordion-title-wrapper') ? item : null);
-                if (trigger && !trigger.classList.contains('brx-open')) {
-                    trigger.classList.add('brx-open');
-                    trigger.setAttribute('aria-expanded', 'true');
+        if (urlState) {
+            var requested = requestedUnit(window.location.href, table.dataset.urlKey || 'unit');
+            if (requested) {
+                var match = null;
+                var list = units();
+                // data-url-value first; data-unit-id = older rendered pages.
+                ['data-url-value', 'data-unit-id'].some(function (attr) {
+                    for (var i = 0; i < list.length; i++) {
+                        if (list[i].getAttribute(attr) === requested) { match = list[i]; return true; }
+                    }
+                    return false;
+                });
+                if (match) {
+                    var row = rowOf(match);
+                    if (mode === 'accordion' && row && hasClass(row, 'accordion-title-wrapper')
+                        && !hasClass(row, 'brx-open') && !isRestricted(row)) {
+                        setOpen(row, true);
+                    }
+                    match.classList.add('is-highlighted');
+                    setTimeout(function () { match.classList.remove('is-highlighted'); }, 2000);
+                    var cells = ownCells(row);
+                    for (var c = 0; c < cells.length; c++) {
+                        if (cells[c].getClientRects().length) {
+                            if (typeof cells[c].scrollIntoView === 'function') {
+                                cells[c].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                            break;
+                        }
+                    }
                 }
-                item.classList.add('is-highlighted');
-                setTimeout(function () { item.classList.remove('is-highlighted'); }, 2000);
-                if (typeof item.scrollIntoView === 'function') {
-                    item.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
             }
         }
-    }
-
-    function cssEscape(s) {
-        if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(s);
-        return String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
     }
 
     /**
@@ -298,11 +564,8 @@
         var hint = table.querySelector('.immoadmin-table-scroll-hint');
         if (!scroller || !hint) return;
 
-        // Pick the right label for the input device:
-        // (hover: hover) + (pointer: fine) ≈ mouse-driven desktop. Touch-only,
-        // hybrid (pen), or coarse-pointer devices keep the touch label.
-        // Matches at load only — re-checking on the fly would just flip text
-        // mid-animation if the user happens to plug in a mouse.
+        // (hover: hover) + (pointer: fine) ≈ mouse-driven desktop. Matches at
+        // load only — re-checking on the fly would flip text mid-animation.
         var labelEl = hint.querySelector('.immoadmin-table-scroll-hint__label');
         if (labelEl && window.matchMedia) {
             var isDesktopMouse = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -316,6 +579,7 @@
 
         var hidden = false;
         var hideTimer = null;
+        var resizeObs = null;
 
         function hideHint() {
             if (hidden) return;
@@ -340,32 +604,23 @@
             if (overflows) {
                 showHint();
             } else {
-                // No overflow yet — keep listening for later layout changes
-                // (font load, async data, container resize) but don't show.
                 hint.removeAttribute('data-active');
             }
         }
 
         function onScroll() {
-            // Any user-initiated horizontal scroll = user understood. Hide.
             if (scroller.scrollLeft > 2) hideHint();
         }
 
         scroller.addEventListener('scroll', onScroll, { passive: true });
 
-        // ResizeObserver covers: window resize, container size changes,
-        // table swap via Bricks AJAX, font load shifts.
-        var resizeObs = null;
         if (typeof ResizeObserver === 'function') {
             resizeObs = new ResizeObserver(checkOverflow);
             resizeObs.observe(scroller);
-            // Also observe the inner table so column-width changes (sort, filter
-            // result reshuffle) re-trigger the check.
             var inner = scroller.querySelector('.immoadmin-table');
             if (inner) resizeObs.observe(inner);
         }
 
-        // Initial check + auto-hide timer.
         checkOverflow();
         hideTimer = setTimeout(hideHint, AUTO_HIDE_MS);
     }
@@ -374,8 +629,8 @@
         document.querySelectorAll('[data-element="immoadmin-units-table"]').forEach(initImmoUnitsTable);
     }
 
-    // Bootstrap. initImmoUnitsTable is idempotent (dataset.immoBound flag) so
-    // we can re-run on every Bricks AJAX swap without harm.
+    // initImmoUnitsTable is idempotent (dataset.immoBound flag), so it can
+    // re-run on every Bricks AJAX swap without harm.
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initAll);
     } else {
@@ -388,4 +643,4 @@
 
     // Expose handler name for Bricks $scripts auto-init.
     window.bricksUnitsTableInit = initAll;
-})();
+})(typeof window !== 'undefined' ? window : this);

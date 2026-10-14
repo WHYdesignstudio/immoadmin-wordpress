@@ -33,9 +33,10 @@ class ImmoAdmin_Filter_Data {
     /**
      * Status values whose prices may appear in the DOM. Same allowlist as
      * ImmoAdmin_Visibility::$public_statuses — everything else (reserved,
-     * sold, rented, anything the backend adds later) fails closed.
+     * sold, rented, a missing/empty status, anything the backend adds
+     * later) fails closed.
      */
-    const PUBLIC_STATUSES = array('available', '');
+    const PUBLIC_STATUSES = array('available');
 
     /** Sun path order, as in the design mockup: Ost · Süd · West · Nord */
     const ORIENTATION_ORDER = array('east', 'south', 'west', 'north');
@@ -359,6 +360,7 @@ class ImmoAdmin_Filter_Data {
         self::$registered_keys = array();
         self::$runtime_filters = array();
         self::$page_index      = null;
+        self::$builder_index   = null;
     }
 
     // -----------------------------------------------------------------
@@ -388,8 +390,15 @@ class ImmoAdmin_Filter_Data {
     }
 
     private static function text_options(array $rows, $key) {
+        // Same rule as range_values(): a price-like key only offers values of
+        // publicly available units, otherwise "Eigenes Feld: purchase_price"
+        // would list the price of every sold unit as a button.
+        $sensitive = self::is_sensitive_key($key);
         $vals = array();
         foreach ($rows as $row) {
+            if ($sensitive && !self::is_public_status($row['status'] ?? '')) {
+                continue;
+            }
             $v = $row[$key] ?? null;
             if (is_scalar($v) && !is_bool($v)) {
                 $v = trim((string) $v);
@@ -592,10 +601,32 @@ class ImmoAdmin_Filter_Data {
         if ($max < $min) {
             list($min, $max) = array($max, $min);
         }
-        if ($max == $min) {
+        // On the step grid (fix v2.15.4): a native range input only reaches
+        // min + k × step. A max off that grid (manual 50–155 / step 10)
+        // makes the browser snap the max handle to 150 on load — the filter
+        // then counts as active, hides units and "Zurücksetzen" can never
+        // restore the configured end. Min goes DOWN to a multiple of the
+        // step, max UP to the next grid value, so every unit stays inside
+        // the initial range.
+        $min = self::grid_floor($min, $step);
+        $max = $min + self::grid_ceil(($max - $min) / $step) * $step;
+        if ($max <= $min) {
             $max = $min + $step;
         }
-        return array('min' => (float) $min, 'max' => (float) $max, 'step' => (float) $step);
+        return array('min' => (float) round($min, 6), 'max' => (float) round($max, 6), 'step' => (float) $step);
+    }
+
+    /** floor($v / $step) * $step, tolerant to float noise (0.3 / 0.1 = 2.9999…). */
+    private static function grid_floor($v, $step) {
+        $q = $v / $step;
+        $r = round($q);
+        return (abs($q - $r) < 1e-9 ? $r : floor($q)) * $step;
+    }
+
+    /** ceil(), tolerant to float noise. */
+    private static function grid_ceil($q) {
+        $r = round($q);
+        return abs($q - $r) < 1e-9 ? $r : ceil($q);
     }
 
     /**
@@ -615,10 +646,18 @@ class ImmoAdmin_Filter_Data {
         $prefix   = (string) ($fmt['prefix'] ?? '');
         $suffix   = (string) ($fmt['suffix'] ?? '');
 
+        // "Kurz" honours "Nachkommastellen" only when the designer set it
+        // explicitly (kDecimals, v2.15.4). Unset keeps the automatic
+        // 1 (k) / 2 (Mio.) decimals with trailing zeros stripped.
+        $k_dec = isset($fmt['kDecimals']) && is_numeric($fmt['kDecimals']) ? max(0, min(4, (int) $fmt['kDecimals'])) : null;
         if ($mode === 'k' && abs($v) >= 1000000) {
-            $text = self::strip_zeros(number_format($v / 1000000, 2, ',', '.')) . ' Mio.';
+            $text = $k_dec === null
+                ? self::strip_zeros(number_format($v / 1000000, 2, ',', '.')) . ' Mio.'
+                : number_format($v / 1000000, $k_dec, ',', '.') . ' Mio.';
         } elseif ($mode === 'k' && abs($v) >= 1000) {
-            $text = self::strip_zeros(number_format($v / 1000, 1, ',', '.')) . 'k';
+            $text = $k_dec === null
+                ? self::strip_zeros(number_format($v / 1000, 1, ',', '.')) . 'k'
+                : number_format($v / 1000, $k_dec, ',', '.') . 'k';
         } elseif ($mode === 'plain') {
             $text = number_format($v, $decimals, ',', '');
         } else {
@@ -710,6 +749,120 @@ class ImmoAdmin_Filter_Data {
             return self::$rows_cache['__test'];
         }
         return self::fetch_rows($extra_keys);
+    }
+
+    // ------------------------------------------- rows of the targeted tables (v2.15.4)
+
+    /**
+     * Stored "Gebäude" of a units-table → clean list. Same normalisation as
+     * ImmoAdmin_Units_Table::sanitize_building_selection() (kept local so
+     * this file stays loadable without the element).
+     */
+    public static function sanitize_building_list($raw) {
+        if (is_string($raw) || is_numeric($raw)) {
+            $raw = array($raw);
+        }
+        if (!is_array($raw)) {
+            return array();
+        }
+        $out = array();
+        foreach ($raw as $v) {
+            if (!is_scalar($v)) {
+                continue;
+            }
+            $v = sanitize_text_field((string) $v);
+            if ($v !== '' && !in_array($v, $out, true)) {
+                $out[] = $v;
+            }
+        }
+        return array_slice($out, 0, 200);
+    }
+
+    /**
+     * Buildings a filter's options / bounds may come from: the union of the
+     * "Gebäude" restrictions of every table it acts on (Ziel-Tabellen, its
+     * group, or — empty — all tables of the page).
+     *
+     * @return array|null building names, or null = no restriction (no table
+     *                    known, or one of them shows all buildings)
+     */
+    public static function building_scope(array $index, array $targets, $group) {
+        $tables  = $index['tables'] ?? array();
+        $present = self::groups_present($tables);
+        $names   = array();
+        $hit     = false;
+        foreach ($tables as $id => $t) {
+            if (!self::applies_to_table($targets, $group, (string) ($t['id'] ?? $id), $t['group'] ?? '', $present)) {
+                continue;
+            }
+            $hit = true;
+            $b = $t['buildings'] ?? array();
+            if (!is_array($b) || empty($b)) {
+                return null; // this table shows every building
+            }
+            foreach ($b as $name) {
+                $names[self::lower(trim((string) $name))] = (string) $name;
+            }
+        }
+        return $hit && !empty($names) ? array_values($names) : null;
+    }
+
+    /** Rows whose building_name is one of $buildings (case-insensitive, like MySQL's IN). null = all rows. */
+    public static function filter_rows_by_buildings(array $rows, $buildings) {
+        if (!is_array($buildings)) {
+            return $rows;
+        }
+        $allowed = array();
+        foreach ($buildings as $b) {
+            $allowed[self::lower(trim((string) $b))] = true;
+        }
+        return array_values(array_filter($rows, function ($row) use ($allowed) {
+            $name = isset($row['building_name']) && is_scalar($row['building_name']) ? self::lower(trim((string) $row['building_name'])) : '';
+            return $name !== '' && isset($allowed[$name]);
+        }));
+    }
+
+    private static $builder_index = null;
+
+    /**
+     * Index the building scope is read from: the page scan on the frontend;
+     * in the builder (where page_index() is empty on purpose) the SAVED
+     * state of the edited post, so the preview matches the frontend after
+     * saving. Anything failing → no tables → no restriction.
+     */
+    private static function scope_index() {
+        if (!self::is_builder()) {
+            return self::page_index();
+        }
+        if (self::$builder_index === null) {
+            self::$builder_index = array('tables' => array(), 'filters' => array());
+            try {
+                $post_id = 0;
+                if (class_exists('\\Bricks\\Database') && isset(\Bricks\Database::$page_data['original_post_id'])) {
+                    $post_id = (int) \Bricks\Database::$page_data['original_post_id'];
+                }
+                if ($post_id <= 0 && function_exists('get_the_ID')) {
+                    $post_id = (int) get_the_ID();
+                }
+                if ($post_id > 0) {
+                    self::$builder_index = self::index_elements(self::bricks_element_lists($post_id), array(__CLASS__, 'bricks_resolver'));
+                }
+            } catch (\Throwable $e) {
+                self::$builder_index = array('tables' => array(), 'filters' => array());
+            }
+        }
+        return self::$builder_index;
+    }
+
+    /**
+     * Rows a filter element derives its options / bounds from (fix v2.15.4):
+     * only units of the buildings its target tables show — four tables
+     * "Haus A" … "Haus D" no longer offer buttons / bounds of other
+     * projects' units on the same site.
+     */
+    public static function rows_for_filter(array $extra_keys, array $targets, $group) {
+        $rows = self::rows($extra_keys);
+        return self::filter_rows_by_buildings($rows, self::building_scope(self::scope_index(), $targets, $group));
     }
 
     /**
@@ -865,7 +1018,7 @@ class ImmoAdmin_Filter_Data {
      *
      * @param array    $lists   list of element lists (header, content, footer …)
      * @param callable $resolve
-     * @return array ['tables' => [id => [id, group, label, external]], 'filters' => [id => [id, name, targets, group, key]]]
+     * @return array ['tables' => [id => [id, group, label, external, buildings]], 'filters' => [id => [id, name, targets, group, key]]]
      */
     public static function index_elements(array $lists, $resolve = null) {
         $index = array('tables' => array(), 'filters' => array());
@@ -888,6 +1041,8 @@ class ImmoAdmin_Filter_Data {
                         'group' => self::sanitize_group($settings['immoadmin_filter_group'] ?? ''),
                         'label' => self::table_label($el, $suffix),
                         'external' => $suffix !== '',
+                        // "Gebäude" restriction (v2.15.4) — scopes the filter options.
+                        'buildings' => self::sanitize_building_list($settings['immoadmin_buildings'] ?? array()),
                     );
                 } elseif (in_array($name, self::filter_element_names(), true) && $id !== '' && !isset($index['filters'][$id])) {
                     $index['filters'][$id] = array(

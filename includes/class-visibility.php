@@ -33,12 +33,19 @@ class ImmoAdmin_Visibility {
 
     /**
      * Status-Werte, die öffentlich bleiben (Allowlist).
-     * Alles andere - reserved, sold, rented und jeder Status, den das Backend
-     * später ergänzt - gilt als eingeschränkt (fail closed).
-     * Leerer Status bleibt öffentlich, damit Installationen ohne Status-Sync
-     * weiter funktionieren.
+     * Alles andere - reserved, sold, rented, jeder Status, den das Backend
+     * später ergänzt, UND ein fehlender/leerer Status - gilt als
+     * eingeschränkt (fail closed).
+     *
+     * Leer heißt "unbekannt": das Backend sendet status immer (Pflichtfeld,
+     * Default "available"). Fehlt er im Payload, löscht der Sync den alten
+     * Wert (veraltete Meta werden entfernt, siehe ImmoAdmin_Sync) - eine
+     * solche Einheit zeigt keine Preise/Dokumente und keine Detailseite,
+     * bis der nächste Sync wieder einen Status liefert. Gleiche Regel in
+     * ImmoAdmin_Filter_Data::PUBLIC_STATUSES (Filter), in der Wohnungstabelle
+     * (render_row) und in der öffentlichen JSON-Kopie (ImmoAdmin_Sync).
      */
-    private static $public_statuses = array('available', '');
+    private static $public_statuses = array('available');
 
     /**
      * Meta-Keys, die NIE redigiert werden. Das Frontend braucht sie und sie
@@ -185,17 +192,12 @@ class ImmoAdmin_Visibility {
      * Anhängen würde bei 'relation' => 'OR' den Schutz aushebeln).
      */
     private static function merge_public_meta_query($existing) {
+        // Einheiten ohne Status-Meta sind ausgeschlossen (siehe $public_statuses)
         $guard = array(
-            'relation' => 'OR',
             array(
                 'key'     => 'status',
                 'value'   => self::$public_statuses,
                 'compare' => 'IN',
-            ),
-            // Einheiten ohne Status-Meta bleiben sichtbar (siehe $public_statuses)
-            array(
-                'key'     => 'status',
-                'compare' => 'NOT EXISTS',
             ),
         );
 
@@ -225,9 +227,7 @@ class ImmoAdmin_Visibility {
             return false;
         }
 
-        $status = strtolower(trim((string) get_post_meta($post->ID, 'status', true)));
-
-        return !in_array($status, self::$public_statuses, true);
+        return !self::is_public_status(get_post_meta($post->ID, 'status', true));
     }
 
     /**
@@ -264,6 +264,15 @@ class ImmoAdmin_Visibility {
         }
 
         return current_user_can($post_type->cap->edit_others_posts);
+    }
+
+    /**
+     * Darf eine Einheit mit diesem Status Preise/Dokumente öffentlich zeigen?
+     * Öffentlicher Zugang zur Allowlist für andere Lesepfade (z.B. die
+     * redigierte JSON-Kopie für MapSVG, siehe ImmoAdmin_Sync).
+     */
+    public static function is_public_status($status) {
+        return in_array(strtolower(trim((string) $status)), self::$public_statuses, true);
     }
 
     /**

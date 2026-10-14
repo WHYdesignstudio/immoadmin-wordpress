@@ -4,6 +4,12 @@
  * Wrapped in @layer bricks so user/theme CSS outside the layer wins
  * automatically. :where() keeps specificity at zero so designers can
  * override anything via Bricks design controls.
+ *
+ * Unused-CSS / purge tools: these classes are only set by
+ * bricks/assets/js/units-table.js or rendered per row in PHP — safelist them:
+ *   .is-even .is-roomy .is-highlighted .brx-open .immoadmin-row-toggle
+ *   .immoadmin-accordion-panel__cell .is-available .is-reserved .is-sold
+ *   .is-rented .is-dimmed  [data-builder] [data-immoadmin-filter-hidden]
  */
 @layer bricks {
 
@@ -15,6 +21,9 @@
         --iat-color-reserved: #f59e0b;
         --iat-color-sold: #ef4444;
         --iat-transition: var(--bricks-transition, all 0.2s ease);
+        /* "Spalten-Abstand" (v2.15.4): set by the control on the root; 0 here
+         * so a units table nested in a panel never inherits the outer one. */
+        --iat-col-gap: 0px;
         /* Anchor for the absolutely-positioned scroll hint overlay. */
         position: relative;
         display: block;
@@ -118,19 +127,31 @@
         grid-template-columns: var(--iat-grid-cols, repeat(var(--iat-cols, 1), minmax(min-content, 1fr)));
         width: 100%;
     }
-    /* In horizontal-scroll mode the table grows past its wrapper. */
+    /* In horizontal-scroll mode the table grows past its wrapper. Its
+     * non-compact tracks are `auto` (v2.15.4), so when the table is NARROWER
+     * than the wrapper (min-width: 100%) the free space stretches them and
+     * row lines / panel span the full width instead of ending mid-way. */
     :where(.brxe-immoadmin-units-table) .immoadmin-table-scroll > .immoadmin-table {
         width: max-content;
         min-width: 100%;
     }
 
-    :where(.brxe-immoadmin-units-table) .immoadmin-table-header,
-    :where(.brxe-immoadmin-units-table) .immoadmin-table-row,
-    :where(.brxe-immoadmin-units-table) .immoadmin-table-empty {
+    /* Row-structure selectors use child combinators from .immoadmin-table so
+     * that a Bricks "Accordion" (or anything else using .accordion-item /
+     * .accordion-title-wrapper) dropped into the detail panel is left alone. */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table > .immoadmin-table-header,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table > .immoadmin-table-row,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table > .accordion-item > .immoadmin-table-row,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table > .immoadmin-table-empty {
         display: contents;
     }
 
-    /* Cells */
+    /* Cells
+     * Default = the pre-v2.15.4 breaking (overflow-wrap: anywhere, same as
+     * the old word-break: break-word): min-content is one letter, so the
+     * table can never overflow — also before / without JS (JS-delay
+     * plugins). units-table.js adds .is-roomy to the grid only when every
+     * column fits word by word; then see the .is-roomy rule below. */
     :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header,
     :where(.brxe-immoadmin-units-table) .immoadmin-table-cell {
         padding: var(--iat-row-padding);
@@ -139,7 +160,39 @@
         align-items: center;
         gap: 6px;
         min-width: 0;
-        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+
+    /* .is-roomy (set by units-table.js when all columns fit word by word):
+     * overflow-wrap: break-word only breaks a word that can't fit at all and
+     * does NOT lower min-content — minmax(min-content, …) tracks stay as wide
+     * as the longest word, so "Zimmer" / "439.800" never split. */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table.is-roomy > .immoadmin-table-header > .immoadmin-table-cell-header,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table.is-roomy > .immoadmin-table-row > .immoadmin-table-cell,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table.is-roomy > .accordion-item > .immoadmin-table-row > .immoadmin-table-cell {
+        overflow-wrap: break-word;
+    }
+
+    /* "Spalten-Abstand" (v2.15.4). Used to be grid column-gap, which tore
+     * row lines, zebra and hover into pieces. Now each cell gets half the
+     * gap as extra space on both sides via zero-width flex spacers, so the
+     * cell boxes touch and backgrounds / borders run through — and it adds
+     * to whatever padding "Zell-Padding" sets. At 0 (default) the spacers
+     * cancel out (-6px margin against the 6px flex gap). */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header::before,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header::after,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell::before,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell::after {
+        content: "";
+        flex: 0 0 calc(var(--iat-col-gap, 0px) / 2);
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header::before,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell::before {
+        margin-inline-end: -6px;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header::after,
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell::after {
+        margin-inline-start: -6px;
     }
 
     :where(.brxe-immoadmin-units-table) [data-align="left"] {
@@ -200,17 +253,45 @@
     }
 
     /* Accordion-mode rowgroup wraps row + content panel */
-    :where(.brxe-immoadmin-units-table) .accordion-item {
+    :where(.brxe-immoadmin-units-table) .immoadmin-table > .accordion-item {
         display: contents;
     }
 
     /* Title wrapper (the row in accordion mode) becomes clickable */
-    :where(.brxe-immoadmin-units-table) .accordion-title-wrapper {
+    :where(.brxe-immoadmin-units-table) .immoadmin-table > .accordion-item > .accordion-title-wrapper {
         cursor: pointer;
     }
-    :where(.brxe-immoadmin-units-table) .accordion-title-wrapper:focus-visible .immoadmin-table-cell:first-child {
-        outline: 2px solid currentColor;
-        outline-offset: -2px;
+
+    /* Keyboard toggle (v2.15.4): rows are display:contents and can't take
+     * focus, so each openable row carries a visually hidden <button> (in the
+     * arrow column, else the first column). Its focus ring is drawn on the
+     * whole row. */
+    :where(.brxe-immoadmin-units-table) .immoadmin-row-toggle {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+        background: none;
+    }
+    /* Containing block for the hidden button: without it the root is, and a
+     * 1px button in a column that overflows the (clipped) grid would widen
+     * the page. */
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-cell:has(> .immoadmin-row-toggle) {
+        position: relative;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-row:has(> .immoadmin-table-cell > .immoadmin-row-toggle:focus-visible) > .immoadmin-table-cell {
+        box-shadow: inset 0 2px 0 0 currentColor, inset 0 -2px 0 0 currentColor;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-row:has(> .immoadmin-table-cell > .immoadmin-row-toggle:focus-visible) > .immoadmin-table-cell:first-child {
+        box-shadow: inset 0 2px 0 0 currentColor, inset 0 -2px 0 0 currentColor, inset 2px 0 0 0 currentColor;
+    }
+    :where(.brxe-immoadmin-units-table) .immoadmin-table-row:has(> .immoadmin-table-cell > .immoadmin-row-toggle:focus-visible) > .immoadmin-table-cell:last-child {
+        box-shadow: inset 0 2px 0 0 currentColor, inset 0 -2px 0 0 currentColor, inset -2px 0 0 0 currentColor;
     }
 
     /* Content panel — collapsed by default, revealed when row has .brx-open
@@ -223,33 +304,49 @@
         overflow: hidden;
         max-height: 0;
         opacity: 0;
+        /* Collapsed = out of the tab order and the accessibility tree
+         * (v2.15.4). visibility flips only AFTER the close transition, and
+         * immediately on open. */
+        visibility: hidden;
         transition: max-height var(--iat-accordion-transition, 0.25s) ease,
                     opacity 0.2s ease,
-                    padding var(--iat-accordion-transition, 0.25s) ease;
+                    padding var(--iat-accordion-transition, 0.25s) ease,
+                    visibility 0s linear var(--iat-accordion-transition, 0.25s);
         box-sizing: border-box;
+    }
+    /* Wrapper that gives the panel's content a cell role (row > cell). No
+     * box of its own, so the layout of the children is unchanged. */
+    :where(.brxe-immoadmin-units-table) .immoadmin-accordion-panel__cell {
+        display: contents;
     }
     /* When the row above is NOT open, kill any user-set padding on the panel.
      * Without this override, padding > 0 keeps the panel taking padding-px of
      * vertical space even at max-height:0 (CSS box-model quirk). Higher
      * specificity than Bricks' generated .brxe-{id} .selector rule. */
-    .brxe-immoadmin-units-table .accordion-item:not(:has(> .accordion-title-wrapper.brx-open)) > .immoadmin-accordion-panel {
+    .brxe-immoadmin-units-table .immoadmin-table > .accordion-item:not(:has(> .accordion-title-wrapper.brx-open)) > .immoadmin-accordion-panel {
         padding: 0;
     }
-    :where(.brxe-immoadmin-units-table) .accordion-title-wrapper.brx-open + .immoadmin-accordion-panel {
+    :where(.brxe-immoadmin-units-table) .immoadmin-table > .accordion-item > .accordion-title-wrapper.brx-open + .immoadmin-accordion-panel {
         max-height: var(--iat-accordion-max-height, 4000px);
         opacity: 1;
+        visibility: visible;
+        transition-delay: 0s;
     }
 
     /* Builder context: force the FIRST row's accordion panel open so the
-     * designer can see and style the children template. JS toggle is a
-     * frontend-only concern; the designer never clicks rows in the builder. */
-    :where(.brxe-immoadmin-units-table)[data-builder="1"] .accordion-item:first-of-type .immoadmin-accordion-panel {
+     * designer can see and style the children template.
+     * The first unit is the item right after the header — the old
+     * `.accordion-item:first-of-type` never matched (the header div is the
+     * grid's first div). Context: data-builder="1" on the root (builder
+     * renders) or Bricks' builder canvas body [data-builder-window="iframe"]. */
+    :where(.brxe-immoadmin-units-table[data-builder="1"], [data-builder-window="iframe"] .brxe-immoadmin-units-table) .immoadmin-table > .immoadmin-table-header + .accordion-item > .immoadmin-accordion-panel {
         max-height: none;
         opacity: 1;
+        visibility: visible;
         transition: none;
     }
-    :where(.brxe-immoadmin-units-table)[data-builder="1"] .accordion-item:first-of-type .accordion-title-wrapper {
-        background: rgba(59, 130, 246, 0.06); /* subtle highlight so designer sees which row is the "preview" */
+    :where(.brxe-immoadmin-units-table[data-builder="1"], [data-builder-window="iframe"] .brxe-immoadmin-units-table) .immoadmin-table > .immoadmin-table-header + .accordion-item > .accordion-title-wrapper > .immoadmin-table-cell {
+        background-image: linear-gradient(rgba(59, 130, 246, 0.06), rgba(59, 130, 246, 0.06)); /* subtle highlight: the "preview" row */
     }
 
     /* -----------------------------------------------------------------
@@ -420,7 +517,7 @@
         align-items: center;
         transition: transform 0.2s ease;
     }
-    :where(.brxe-immoadmin-units-table) .accordion-title-wrapper.brx-open .immoadmin-accordion-toggle {
+    :where(.brxe-immoadmin-units-table) .immoadmin-table > .accordion-item > .accordion-title-wrapper.brx-open .immoadmin-accordion-toggle {
         transform: rotate(180deg);
     }
     @media (prefers-reduced-motion: reduce) {
@@ -437,9 +534,13 @@
         padding: 24px 16px;
     }
 
-    /* Mobile breakpoints — Bricks default scale (max-width 767/1024). */
+    /* Mobile breakpoints — Bricks default scale (max-width 767/1024).
+     * 14px is only a FALLBACK now (v2.15.4): it sits on the root with zero
+     * specificity, so the element's own typography (Bricks' unlayered
+     * .brxe-{id} rule, any breakpoint) wins. It used to sit on the grid and
+     * silently override it below 1025px. */
     @media (max-width: 1024px) {
-        :where(.brxe-immoadmin-units-table) .immoadmin-table {
+        :where(.brxe-immoadmin-units-table) {
             font-size: 14px;
         }
     }
@@ -467,9 +568,11 @@
         .brxe-immoadmin-units-table .immoadmin-table {
             grid-template-columns: var(--iat-mobile-grid-cols, var(--iat-grid-cols, repeat(var(--iat-mobile-cols, 1), minmax(min-content, 1fr))));
         }
-        :where(.brxe-immoadmin-units-table) .immoadmin-table-cell-header,
-        :where(.brxe-immoadmin-units-table) .immoadmin-table-cell {
-            padding: 8px 10px;
+        /* Smaller default padding for header AND cells alike, via the
+         * variable (v2.15.4) — a "Zell-Padding" set in Bricks now covers both
+         * (it no longer gets overridden for the header only). */
+        :where(.brxe-immoadmin-units-table) {
+            --iat-row-padding: 8px 10px;
         }
     }
 }

@@ -1,6 +1,7 @@
 /**
  * ImmoAdmin filter widgets — pure matching, targeting + formatting logic
- * (v2.14.0, targeting v2.15.0, value labels v2.15.1).
+ * (v2.14.0, targeting v2.15.0, value labels v2.15.1, counts / mirrors /
+ * grid bounds v2.15.4).
  *
  * No DOM access: runs in the browser (window.ImmoAdminFilterLogic) and in
  * plain node for tests (module.exports). bricks/assets/js/filters.js wires it
@@ -181,16 +182,34 @@
         var prefix = fmt.prefix == null ? '' : String(fmt.prefix);
         var suffix = fmt.suffix == null ? '' : String(fmt.suffix);
         var text;
+        // Explicit "Nachkommastellen" for "Kurz" (v2.15.4); unset = automatic.
+        var kDec = toNumber(fmt.kDecimals);
+        if (kDec !== null) kDec = Math.max(0, Math.min(4, Math.floor(kDec)));
         if (mode === 'k' && Math.abs(v) >= 1000000) {
-            text = stripZeros(numberFormat(v / 1000000, 2, ',', '.')) + ' Mio.';
+            text = (kDec === null ? stripZeros(numberFormat(v / 1000000, 2, ',', '.')) : numberFormat(v / 1000000, kDec, ',', '.')) + ' Mio.';
         } else if (mode === 'k' && Math.abs(v) >= 1000) {
-            text = stripZeros(numberFormat(v / 1000, 1, ',', '.')) + 'k';
+            text = (kDec === null ? stripZeros(numberFormat(v / 1000, 1, ',', '.')) : numberFormat(v / 1000, kDec, ',', '.')) + 'k';
         } else if (mode === 'plain') {
             text = numberFormat(v, decimals, ',', '');
         } else {
             text = numberFormat(v, decimals, ',', '.');
         }
         return prefix + text + suffix;
+    }
+
+    /**
+     * The bounds a native range input really reaches (v2.15.4): values are
+     * min + k × step, so a max off that grid ends at the last grid value
+     * below it. Comparing against the configured max made a snapped handle
+     * count as an active filter on page load.
+     */
+    function gridBounds(min, max, step) {
+        var lo = toNumber(min), hi = toNumber(max), st = toNumber(step);
+        if (lo === null || hi === null) return { min: lo, max: hi, step: st || 1 };
+        if (!st || st <= 0) st = 1;
+        if (hi < lo) { var t = lo; lo = hi; hi = t; }
+        var k = Math.floor((hi - lo) / st + 1e-9);
+        return { min: lo, max: Math.round((lo + k * st) * 1e6) / 1e6, step: st };
     }
 
     /** Snap a value to the slider grid inside [min, max]. */
@@ -293,6 +312,71 @@
         return parts;
     }
 
+    // ------------------------------------------------- counts & status (v2.15.4)
+
+    /**
+     * Text of a [data-immoadmin-count] element: tpl with {count}
+     * ("{count} Wohnungen"), or "<count> <tpl>", or just the number. The
+     * -one / -zero variants win for 1 / 0 and are whole texts ("1 Wohnung",
+     * "Keine Wohnungen" — v2.15.4: no longer prefixed with the number).
+     */
+    function countText(count, tpl, one, zero) {
+        var variant = (count === 1 && one != null) ? one : (count === 0 && zero != null) ? zero : null;
+        var t = String(variant != null ? variant : (tpl == null ? '' : tpl));
+        if (t.indexOf('{count}') !== -1) return t.split('{count}').join(String(count));
+        if (variant != null && t !== '') return t;
+        return t ? count + ' ' + t : String(count);
+    }
+
+    /**
+     * Sum of the visible units per count scope. entries: [{ scope, count }],
+     * scope = any value compared with === (a DOM element in the browser).
+     * Several tables in one wrapper add up instead of the last one winning.
+     */
+    function sumByScope(entries) {
+        var out = [];
+        (entries || []).forEach(function (e) {
+            if (!e || e.scope == null) return;
+            for (var i = 0; i < out.length; i++) {
+                if (out[i].scope === e.scope) { out[i].count += Number(e.count) || 0; return; }
+            }
+            out.push({ scope: e.scope, count: Number(e.count) || 0 });
+        });
+        return out;
+    }
+
+    /** Sum of the counts of the tables an explicit data-immoadmin-count-for names. */
+    function countFor(ids, tables) {
+        var want = parseTargets(ids);
+        var sum = 0;
+        (tables || []).forEach(function (t) {
+            for (var i = 0; i < want.length; i++) {
+                if (idMatches(t.id, want[i])) { sum += Number(t.count) || 0; return; }
+            }
+        });
+        return sum;
+    }
+
+    /** Screen-reader announcement after filtering (aria-live region). */
+    function statusText(count) {
+        count = Number(count) || 0;
+        if (count === 0) return 'Keine passenden Wohnungen gefunden';
+        if (count === 1) return '1 passende Wohnung gefunden';
+        return count + ' passende Wohnungen gefunden';
+    }
+
+    /**
+     * Filters that are copies of each other (desktop + mobile version: same
+     * kind, field, match and tables) share one state. '' = never mirrored.
+     */
+    function mirrorKey(type, config, spec) {
+        if (type !== 'buttons' && type !== 'range') return '';
+        config = config || {};
+        if (!config.key) return '';
+        var targets = parseTargets((spec && spec.targets) || []).slice().sort();
+        return [type, config.key, type === 'buttons' ? (config.match || 'text') : '', targets.join(' '), (spec && spec.group) || ''].join('|');
+    }
+
     // ------------------------------------------------------------- targeting
     // Mirror of ImmoAdmin_Filter_Data::applies_to_table() & co. (v2.15.0) —
     // tested against the same cases (tests/fixtures/targeting-cases.json).
@@ -373,6 +457,12 @@
         evaluateTable: evaluateTable,
         format: format,
         snap: snap,
+        gridBounds: gridBounds,
+        countText: countText,
+        sumByScope: sumByScope,
+        countFor: countFor,
+        statusText: statusText,
+        mirrorKey: mirrorKey,
         valueLabelLayout: valueLabelLayout,
         mergedValueParts: mergedValueParts,
         parseTargets: parseTargets,

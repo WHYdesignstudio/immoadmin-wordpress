@@ -1,16 +1,132 @@
 /*
- * ImmoAdmin filter widgets (v2.14.0, moving value labels v2.15.1)
+ * ImmoAdmin filter widgets (v2.14.0, moving value labels v2.15.1, v2.15.4)
  *
- * Minimal, neutral base. Everything visual sits in @layer bricks behind
+ * Minimal, neutral base. Everything VISUAL sits in @layer bricks behind
  * :where() (zero specificity), so every Bricks control and every theme rule
- * wins without !important. Only the functional "hidden" rule below is
- * unlayered — hiding filtered rows must not be overridable by accident.
+ * wins without !important. Unlayered are only the FUNCTIONAL rules that must
+ * not be overridable by accident (v2.15.4): hiding filtered rows, the
+ * mechanics of the double range slider, the screen-reader status region —
+ * and the built-in "selected" look of the filter buttons, which has to beat
+ * the designer's Normal/Hover styles (Bricks prints those unlayered as
+ * "#brxe-id .immoadmin-filter-option", 1-1-0).
  */
 
 /* Filtered out: rows, tables and their heading wrappers. Must beat the
  * table's own display:contents / display:block rules. */
 [data-immoadmin-filter-hidden] {
     display: none !important;
+}
+
+/* Filter-Buttons, built-in selected look. Only on elements WITHOUT any
+ * "Button (Aktiv)" style (filter-buttons.php sets the class). :not(#iaf-x)
+ * lifts it to 1-4-0: above the designer's Normal state (1-1-0); Hover
+ * never matches a selected button (…:not(.brx-option-active):hover). */
+.brxe-immoadmin-filter-buttons.immoadmin-filter--default-active .immoadmin-filter-option.brx-option-active:not(#iaf-x) {
+    background-color: var(--iaf-option-active-bg, #1f2937);
+    border-color: var(--iaf-option-active-border, currentColor);
+    color: var(--iaf-option-active-color, #fff);
+}
+
+/* Filter-Bereich: slider mechanics. Two native range inputs stacked on one
+ * track; only the thumbs take the pointer; the native track is invisible
+ * (.slider-base / .slider-track draw it). A theme "input[type=range]" rule
+ * must never break dragging — so these sit outside the layer. */
+.brxe-immoadmin-filter-range .slider-wrap {
+    position: relative;
+    height: var(--iaf-thumb-size, 18px);
+}
+
+.brxe-immoadmin-filter-range .slider-base,
+.brxe-immoadmin-filter-range .slider-track {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+.brxe-immoadmin-filter-range .slider-base {
+    left: 0;
+    width: 100%;
+}
+
+/* --iaf-lo / --iaf-hi (0…1) are set by filters.js. The thumb centre
+ * travels from thumb/2 to 100% − thumb/2, so the track does too. */
+.brxe-immoadmin-filter-range .slider-track {
+    left: calc(var(--iaf-lo, 0) * (100% - var(--iaf-thumb-size, 18px)) + var(--iaf-thumb-size, 18px) / 2);
+    width: calc((var(--iaf-hi, 1) - var(--iaf-lo, 0)) * (100% - var(--iaf-thumb-size, 18px)));
+}
+
+.brxe-immoadmin-filter-range .double-slider-wrap input[type="range"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    appearance: none;
+    -webkit-appearance: none;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.brxe-immoadmin-filter-range .double-slider-wrap input[type="range"].is-top {
+    z-index: 2;
+}
+
+.brxe-immoadmin-filter-range .double-slider-wrap input[type="range"]::-webkit-slider-runnable-track {
+    height: 100%;
+    background: none;
+    border: 0;
+    box-shadow: none;
+}
+
+.brxe-immoadmin-filter-range .double-slider-wrap input[type="range"]::-moz-range-track {
+    height: 100%;
+    background: none;
+    border: 0;
+    box-shadow: none;
+}
+
+.brxe-immoadmin-filter-range .double-slider-wrap input[type="range"]::-moz-range-progress {
+    background: none;
+}
+
+.brxe-immoadmin-filter-range .double-slider-wrap input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    width: var(--iaf-thumb-size, 18px);
+    height: var(--iaf-thumb-size, 18px);
+    pointer-events: auto;
+}
+
+.brxe-immoadmin-filter-range .double-slider-wrap input[type="range"]::-moz-range-thumb {
+    box-sizing: border-box;
+    width: var(--iaf-thumb-size, 18px);
+    height: var(--iaf-thumb-size, 18px);
+    pointer-events: auto;
+}
+
+/* Moving value labels never widen the column (contain: their width is
+ * the slider's, filters.js clamps them inside). */
+.brxe-immoadmin-filter-range .value-wrap[data-value-position="follow"] {
+    contain: inline-size;
+}
+
+/* Screen readers: result count after filtering (filters.js). */
+.immoadmin-filter-status {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
 }
 
 @layer bricks {
@@ -39,6 +155,15 @@
         padding: 0;
     }
 
+    /* Own colours for the selected state (v2.15.4) — --bricks-color-primary
+     * is always defined by Bricks (#ffd64f), white text on it failed WCAG.
+     * The border follows the (white) text: invisible on light pages, a
+     * clear ring around the dark pill on dark pages. */
+    :where(.brxe-immoadmin-filter-buttons) {
+        --iaf-option-active-bg: #1f2937;
+        --iaf-option-active-color: #fff;
+    }
+
     :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-option {
         appearance: none;
         display: inline-flex;
@@ -48,18 +173,30 @@
         padding: 0.4em 1.1em;
         font: inherit;
         line-height: 1.2;
-        color: inherit;
-        background-color: transparent;
-        border: 1px solid currentColor;
         border-radius: 999px;
         cursor: pointer;
         transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
     }
 
+    /* Neutral colours only without a Bricks preset (v2.15.4): "Stil"
+     * (bricks-background-*) and "Outline" (outline + bricks-color-*) bring
+     * their own and used to be overridden here. */
+    :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-option:where(:not([class*="bricks-background-"])) {
+        background-color: transparent;
+    }
+
+    :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-option:where(:not([class*="bricks-background-"]):not(.outline)) {
+        border: 1px solid currentColor;
+    }
+
+    :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-option:where(:not([class*="bricks-color-"])) {
+        color: inherit;
+    }
+
     :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-option.brx-option-active {
-        background-color: var(--bricks-color-primary, #1f2937);
-        border-color: var(--bricks-color-primary, #1f2937);
-        color: #fff;
+        background-color: var(--iaf-option-active-bg);
+        border-color: var(--iaf-option-active-border, currentColor);
+        color: var(--iaf-option-active-color);
     }
 
     :where(.brxe-immoadmin-filter-buttons) .immoadmin-filter-option:focus-visible {
@@ -73,7 +210,10 @@
     :where(.brxe-immoadmin-filter-range) {
         --iaf-bar-height: 4px;
         --iaf-bar-radius: 999px;
-        --iaf-bar-color: rgba(0, 0, 0, 0.15);
+        /* Base bar: a faint tint of the text colour — visible on light AND
+         * dark backgrounds, always different from the active bar (v2.15.4). */
+        --iaf-bar-color: rgba(127, 127, 127, 0.35);
+        --iaf-bar-color: color-mix(in srgb, currentColor 25%, transparent);
         --iaf-bar-active-color: currentColor;
         --iaf-thumb-size: 18px;
         --iaf-thumb-bg: #fff;
@@ -81,98 +221,51 @@
         flex-direction: column;
         gap: 0.5em;
         width: 100%;
+        /* Never wider than its column (v2.15.4). */
+        min-width: 0;
+        max-width: 100%;
     }
 
     :where(.brxe-immoadmin-filter-range) .double-slider-wrap {
         display: flex;
         flex-direction: column;
         width: 100%;
+        min-width: 0;
         isolation: isolate;
     }
 
-    :where(.brxe-immoadmin-filter-range) .slider-wrap {
-        position: relative;
-        height: var(--iaf-thumb-size);
-    }
-
+    /* Mechanics (position, pointer-events, appearance) are unlayered at the
+     * top of this file; only the look lives here. */
     :where(.brxe-immoadmin-filter-range) .slider-base,
     :where(.brxe-immoadmin-filter-range) .slider-track {
-        position: absolute;
-        top: 50%;
         height: var(--iaf-bar-height);
         border-radius: var(--iaf-bar-radius);
-        transform: translateY(-50%);
-        pointer-events: none;
     }
 
     :where(.brxe-immoadmin-filter-range) .slider-base {
-        left: 0;
-        width: 100%;
         background-color: var(--iaf-bar-color);
     }
 
-    /* --iaf-lo / --iaf-hi (0…1) are set by filters.js. The thumb centre
-     * travels from thumb/2 to 100% − thumb/2, so the track does too. */
     :where(.brxe-immoadmin-filter-range) .slider-track {
-        left: calc(var(--iaf-lo, 0) * (100% - var(--iaf-thumb-size)) + var(--iaf-thumb-size) / 2);
-        width: calc((var(--iaf-hi, 1) - var(--iaf-lo, 0)) * (100% - var(--iaf-thumb-size)));
         background-color: var(--iaf-bar-active-color);
     }
 
     :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"] {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        margin: 0;
-        padding: 0;
-        background: none;
-        border: 0;
         outline: none;
-        appearance: none;
-        -webkit-appearance: none;
-        pointer-events: none;
-        z-index: 1;
-    }
-
-    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"].is-top {
-        z-index: 2;
-    }
-
-    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]::-webkit-slider-runnable-track {
-        height: 100%;
-        background: none;
-        border: 0;
-    }
-
-    :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]::-moz-range-track {
-        height: 100%;
-        background: none;
-        border: 0;
     }
 
     :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        appearance: none;
-        box-sizing: border-box;
-        width: var(--iaf-thumb-size);
-        height: var(--iaf-thumb-size);
         border-radius: 50%;
         background-color: var(--iaf-thumb-bg);
         border: 2px solid var(--iaf-bar-active-color);
         cursor: pointer;
-        pointer-events: auto;
     }
 
     :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]::-moz-range-thumb {
-        box-sizing: border-box;
-        width: var(--iaf-thumb-size);
-        height: var(--iaf-thumb-size);
         border-radius: 50%;
         background-color: var(--iaf-thumb-bg);
         border: 2px solid var(--iaf-bar-active-color);
         cursor: pointer;
-        pointer-events: auto;
     }
 
     :where(.brxe-immoadmin-filter-range) .double-slider-wrap input[type="range"]:focus-visible::-webkit-slider-thumb {
@@ -190,6 +283,7 @@
         justify-content: space-between;
         gap: 1em;
         margin-top: 0.5em;
+        min-width: 0;
     }
 
     :where(.brxe-immoadmin-filter-range) .value-wrap > span {

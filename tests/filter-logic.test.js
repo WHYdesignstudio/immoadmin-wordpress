@@ -181,5 +181,49 @@ check('t1: only the all-mode Haus filter', L.evaluateTable(rows, critFor(page[0]
 check('t2: Haus AND Zimmer', L.evaluateTable(rows, critFor(page[1])).visible, [false, true, false, false]);
 check('no filters on the page → nothing active, all rows visible', L.evaluateTable(rows, []), { visible: [true, true, true, true], count: 4, anyActive: false, hiddenByScope: false });
 
+// ================================================================ v2.15.4
+section('v2.15.4 #4: grid bounds — what a native range input really reaches');
+check('max off grid → last grid value', L.gridBounds(50, 155, 10), { min: 50, max: 150, step: 10 });
+check('on grid unchanged', L.gridBounds(50, 160, 10), { min: 50, max: 160, step: 10 });
+check('decimal step, no float noise', L.gridBounds(0.1, 0.35, 0.1), { min: 0.1, max: 0.3, step: 0.1 });
+check('swapped / zero step tolerated', L.gridBounds(160, 50, 0), { min: 50, max: 160, step: 1 });
+check('strings from data attributes', L.gridBounds('280000', '765000', '10000'), { min: 280000, max: 760000, step: 10000 });
+// Browser snaps the max handle of 50–155/10 to 150: with the grid max the
+// filter is NOT active (was: active on load, units hidden, reset useless).
+var gb = L.gridBounds(50, 155, 10);
+check('snapped handles at the grid bounds → inactive', L.isActive(range('living_area', L.snap(50, gb.min, gb.max, gb.step), L.snap(155, gb.min, gb.max, gb.step), gb.min, gb.max)), false);
+check('against the configured max it was active (the bug)', L.isActive(range('living_area', 50, 150, 50, 155)), true);
+check('moved handle still active', L.isActive(range('living_area', 60, 150, gb.min, gb.max)), true);
+
+section('v2.15.4 #11: Nachkommastellen with "Kurz" (same cases as PHP)');
+JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'format-k-decimals-cases.json'), 'utf8')).forEach(function (c) {
+    check('format ' + JSON.stringify(c.value) + ' ' + JSON.stringify(c.fmt), L.format(c.value, c.fmt), c.expected);
+});
+
+section('v2.15.4 #7: counts');
+check('template with {count}', L.countText(3, '{count} Wohnungen'), '3 Wohnungen');
+check('plain text appended', L.countText(3, 'Wohnungen'), '3 Wohnungen');
+check('no template → number', L.countText(0, ''), '0');
+check('one / zero variants', [L.countText(1, '{count} Wohnungen', '1 Wohnung', 'keine'), L.countText(0, '{count} Wohnungen', '1 Wohnung', 'keine'), L.countText(2, '{count} Wohnungen', '1 Wohnung', 'keine')], ['1 Wohnung', 'keine', '2 Wohnungen']);
+check('variant with {count}', L.countText(0, '{count} x', null, '{count} – leider keine'), '0 – leider keine');
+check('empty one-variant → just the number', L.countText(1, '{count} x', ''), '1');
+var wrapA = { name: 'A' }, wrapB = { name: 'B' };
+check('several tables in one wrapper add up (was: last table wins)', L.sumByScope([{ scope: wrapA, count: 3 }, { scope: wrapA, count: 4 }, { scope: wrapB, count: 2 }]).map(function (e) { return [e.scope.name, e.count]; }), [['A', 7], ['B', 2]]);
+check('missing scope ignored', L.sumByScope([{ scope: null, count: 3 }, { scope: wrapA, count: '2' }]).map(function (e) { return e.count; }), [2]);
+var sum = [{ id: 't1', count: 3 }, { id: 't2', count: 5 }, { id: 'c9-inst', count: 1 }];
+check('count-for: one table', L.countFor('t2', sum), 5);
+check('count-for: several (sum), component instance, junk ignored', L.countFor('t1 c9 "x"', sum), 4);
+check('count-for: unknown id → 0', L.countFor('zz', sum), 0);
+
+section('v2.15.4 #10: screen-reader status text');
+check('0 / 1 / n', [L.statusText(0), L.statusText(1), L.statusText(12)], ['Keine passenden Wohnungen gefunden', '1 passende Wohnung gefunden', '12 passende Wohnungen gefunden']);
+
+section('v2.15.4 #11: mirrored copies (desktop + mobile version of one filter)');
+var mk = function (type, cfg, spec) { return L.mirrorKey(type, cfg, spec); };
+check('same field + tables → same key (target order irrelevant)', mk('buttons', { key: 'floor', match: 'floor' }, { targets: ['b', 'a'], group: '' }) === mk('buttons', { key: 'floor', match: 'floor', multiple: false }, { targets: ['a', 'b'] }), true);
+check('different tables → different key', mk('buttons', { key: 'floor', match: 'floor' }, { targets: ['a'] }) === mk('buttons', { key: 'floor', match: 'floor' }, { targets: ['b'] }), false);
+check('different field / kind → different key', [mk('buttons', { key: 'floor' }, {}) === mk('buttons', { key: 'room_count' }, {}), mk('range', { key: 'living_area' }, {}) === mk('buttons', { key: 'living_area' }, {})], [false, false]);
+check('actions / no key → never mirrored', [mk('actions', { key: 'x' }, {}), mk('buttons', {}, {})], ['', '']);
+
 console.log('\n' + count + ' checks, ' + fails + ' failed');
 process.exit(fails > 0 ? 1 : 0);

@@ -17,6 +17,17 @@
  * (prices already redacted server-side). Matching lives in filter-logic.js.
  *
  * Never touches a table no filter acts on, never touches Bricks' own filters.
+ *
+ * Counts (v2.15.4): an element with data-immoadmin-count shows the number of
+ * visible units of the tables whose wrapper (the table's "mit ausblenden"
+ * wrapper, else its parent element) contains it — several tables in one
+ * wrapper add up; the innermost wrapper wins. data-immoadmin-count-for=
+ * "<table id> [<table id> …]" pins an element anywhere on the page to those
+ * tables (sum). Optional data-immoadmin-count-one / -zero texts.
+ *
+ * Copies (v2.15.4): filters with the same kind, field and tables (desktop +
+ * mobile version) mirror each other's state instead of AND-ing a stale,
+ * hidden copy.
  */
 (function () {
     'use strict';
@@ -47,7 +58,8 @@
         var self = this;
         this.el = el;
         this.onChange = onChange;
-        this.config = parseJSON(el.getAttribute('data-immoadmin-filter-config'), {});
+        this.configRaw = el.getAttribute('data-immoadmin-filter-config');
+        this.config = parseJSON(this.configRaw, {});
         this.id = el.id || ('iaf-' + Math.random().toString(36).slice(2));
 
         el.addEventListener('click', function (e) {
@@ -86,12 +98,30 @@
         var self = this;
         each(this.buttons(), function (b) { self.setActive(b, false); });
     };
+    ButtonsFilter.prototype.getState = function () {
+        return this.criterion().values;
+    };
+    ButtonsFilter.prototype.setState = function (values) {
+        var self = this;
+        values = values || [];
+        each(this.buttons(), function (b) { self.setActive(b, values.indexOf(b.getAttribute('data-value')) !== -1); });
+    };
+    // Builder re-render: Bricks swaps the element's inner markup (and maybe
+    // its config) — the click listener sits on the root and survives.
+    ButtonsFilter.prototype.isStale = function () {
+        return this.configRaw !== this.el.getAttribute('data-immoadmin-filter-config');
+    };
+    ButtonsFilter.prototype.refresh = function () {
+        this.configRaw = this.el.getAttribute('data-immoadmin-filter-config');
+        this.config = parseJSON(this.configRaw, {});
+    };
 
     function RangeFilter(el, onChange) {
         var self = this;
         this.el = el;
         this.onChange = onChange;
-        this.config = parseJSON(el.getAttribute('data-immoadmin-filter-config'), {});
+        this.configRaw = el.getAttribute('data-immoadmin-filter-config');
+        this.config = parseJSON(this.configRaw, {});
         this.id = el.id || ('iaf-' + Math.random().toString(36).slice(2));
         this.minInput = el.querySelector('input[type="range"].min');
         this.maxInput = el.querySelector('input[type="range"].max');
@@ -118,6 +148,7 @@
         }
 
         var onInput = function (e) {
+            if (self.dead) return;
             self.clamp(e.target === self.minInput ? 'min' : 'max');
             self.paint();
             self.onChange();
@@ -157,6 +188,7 @@
     };
     RangeFilter.prototype.destroy = function () {
         var f = this.follow;
+        this.dead = true;
         if (!f) return;
         if (f.observer) f.observer.disconnect();
         if (f.onWindowResize) window.removeEventListener('resize', f.onWindowResize);
@@ -211,8 +243,10 @@
         else f.wrap.removeAttribute('data-merged');
         f.wrap.setAttribute('data-placed', '');
     };
+    // The bounds the inputs really reach (config max off the step grid →
+    // last grid value), so a snapped handle never counts as "filtered".
     RangeFilter.prototype.bounds = function () {
-        return { min: Number(this.config.min), max: Number(this.config.max), step: Number(this.config.step) || 1 };
+        return L.gridBounds(this.config.min, this.config.max, Number(this.config.step) || 1);
     };
     RangeFilter.prototype.values = function () {
         var b = this.bounds();
@@ -268,6 +302,24 @@
         this.minInput.value = b.min;
         this.maxInput.value = b.max;
         this.paint();
+    };
+    RangeFilter.prototype.getState = function () {
+        return this.minInput ? this.values() : null;
+    };
+    RangeFilter.prototype.setState = function (v) {
+        if (!this.minInput || !v) return;
+        var b = this.bounds();
+        this.minInput.value = L.snap(v.lo, b.min, b.max, b.step);
+        this.maxInput.value = L.snap(v.hi, b.min, b.max, b.step);
+        this.paint();
+    };
+    // Builder re-render (Bricks replaces the inner markup): the inputs this
+    // instance listens to are gone, or the config changed → rebuild.
+    RangeFilter.prototype.isStale = function () {
+        if (this.configRaw !== this.el.getAttribute('data-immoadmin-filter-config')) return true;
+        if (!this.minInput) return !!this.el.querySelector('input[type="range"].min');
+        return !this.el.contains(this.minInput) || !this.el.contains(this.maxInput)
+            || (this.follow && !this.el.contains(this.follow.wrap));
     };
 
     // ------------------------------------------------------------ tables
@@ -368,20 +420,53 @@
         grid.appendChild(msg); // keep it below the (hidden) rows after a sort
     }
 
-    function updateCounts(scope, count) {
-        if (!scope) return;
-        each(scope.querySelectorAll('[data-immoadmin-count]'), function (el) {
-            var tpl = (count === 1 && el.hasAttribute('data-immoadmin-count-one'))
-                ? el.getAttribute('data-immoadmin-count-one')
-                : (count === 0 && el.hasAttribute('data-immoadmin-count-zero'))
-                    ? el.getAttribute('data-immoadmin-count-zero')
-                    : el.getAttribute('data-immoadmin-count');
-            tpl = tpl || '';
-            var text = tpl.indexOf('{count}') !== -1
-                ? tpl.split('{count}').join(String(count))
-                : (tpl ? count + ' ' + tpl : String(count));
-            if (el.textContent !== text) el.textContent = text;
+    function writeCount(el, count) {
+        var text = L.countText(count,
+            el.getAttribute('data-immoadmin-count') || '',
+            el.hasAttribute('data-immoadmin-count-one') ? el.getAttribute('data-immoadmin-count-one') : null,
+            el.hasAttribute('data-immoadmin-count-zero') ? el.getAttribute('data-immoadmin-count-zero') : null);
+        if (el.textContent !== text) el.textContent = text;
+    }
+
+    // scopes: [{ scope: element, count }] — one per table (wrapper or parent).
+    function updateCounts(scopes, summary) {
+        var sums = L.sumByScope(scopes);
+        var done = [];
+        // Explicit data-immoadmin-count-for: sum of the named tables.
+        each(document.querySelectorAll('[data-immoadmin-count-for]'), function (el) {
+            done.push(el);
+            writeCount(el, L.countFor(el.getAttribute('data-immoadmin-count-for'), summary));
         });
+        // Otherwise: the innermost scope that contains the element.
+        var seen = [];
+        sums.forEach(function (s) {
+            each(s.scope.querySelectorAll('[data-immoadmin-count]'), function (el) {
+                if (done.indexOf(el) !== -1 || seen.indexOf(el) !== -1) return;
+                seen.push(el);
+                var best = null;
+                sums.forEach(function (o) {
+                    if (o.scope.contains(el) && (!best || best.scope.contains(o.scope))) best = o;
+                });
+                writeCount(el, best ? best.count : s.count);
+            });
+        });
+    }
+
+    // Screen readers: one polite live region for the whole page, filled only
+    // after the visitor changed something (never on page load).
+    var liveRegion = null;
+    function announce(count) {
+        if (!liveRegion || !document.body.contains(liveRegion)) {
+            liveRegion = document.createElement('div');
+            liveRegion.className = 'immoadmin-filter-status';
+            liveRegion.setAttribute('role', 'status');
+            liveRegion.setAttribute('aria-live', 'polite');
+            liveRegion.setAttribute('aria-atomic', 'true');
+            document.body.appendChild(liveRegion);
+        }
+        var text = L.statusText(count);
+        // Same text twice (e.g. two changes, same count) — re-set so it is read again.
+        liveRegion.textContent = liveRegion.textContent === text ? text + '\u00a0' : text;
     }
 
     // ------------------------------------------------------------ apply
@@ -399,20 +484,32 @@
         return filters.filter(function (f) { return L.actionCovers(a.spec, f.spec, tables); });
     }
 
+    // A "Suchen" button the visitor can actually see and press. Hidden on
+    // this breakpoint (display:none on the element or the button), it must
+    // not hold the filters back — v2.15.4.
+    function hasVisibleSubmit(a) {
+        var btns = a.el.querySelectorAll('[data-immoadmin-filter-action="submit"]');
+        for (var i = 0; i < btns.length; i++) {
+            if (btns[i].getClientRects().length > 0) return true;
+        }
+        return false;
+    }
+
     function isDeferred(f, tables) {
-        // An actions element on "Beim Klick auf Suchen" (default) defers;
-        // no responsible actions element → instant.
+        // A responsible actions element with a VISIBLE "Suchen" button
+        // defers; none (or all hidden) → instant.
         var mine = coveringActions(f, tables);
         for (var i = 0; i < mine.length; i++) {
-            if (mine[i].el.getAttribute('data-apply-on') !== 'change') return true;
+            if (mine[i].el.getAttribute('data-apply-on') !== 'change' && hasVisibleSubmit(mine[i])) return true;
         }
         return false;
     }
 
     // Show / hide rows and tables from the COMMITTED state of the filters
     // (what the visitor searched), never from unsaved changes.
-    function render() {
+    function render(userAction) {
         var tables = pageTables();
+        var scopes = [];
         var present = L.groupsPresent(tables);
         var wrappers = []; // [{ el, hidden: [bool] }]
         var summary = [];
@@ -451,14 +548,18 @@
                 entry.hidden.push(tableHidden);
             }
 
-            updateCounts(wrapper || table.parentElement, res.count);
-            summary.push({ table: table, id: t.id, count: res.count, hidden: tableHidden });
+            scopes.push({ scope: wrapper || table.parentElement, count: tableHidden ? 0 : res.count });
+            summary.push({ table: table, id: t.id, count: tableHidden ? 0 : res.count, hidden: tableHidden });
         });
 
         // A wrapper holding several tables only disappears with the last one.
         wrappers.forEach(function (entry) {
             setHidden(entry.el, entry.hidden.every(Boolean));
         });
+        updateCounts(scopes.filter(function (s) { return !!s.scope; }), summary);
+        if (userAction && summary.length) {
+            announce(summary.reduce(function (n, t) { return n + t.count; }, 0));
+        }
 
         syncActions(tables);
         document.dispatchEvent(new CustomEvent('immoadmin/filter/applied', {
@@ -484,23 +585,76 @@
         });
     }
 
+    function mirrorsOf(f) {
+        if (!f.mirror) return [f];
+        return filters.filter(function (g) { return g === f || g.mirror === f.mirror; });
+    }
+
     function changed(f) {
         var tables = pageTables();
-        if (isDeferred(f, tables)) {
-            f.pending = true;
+        var group = mirrorsOf(f);
+        var state = f.impl.getState ? f.impl.getState() : null;
+        group.forEach(function (g) {
+            if (g !== f && g.impl.setState) g.impl.setState(state);
+        });
+        var deferred = group.some(function (g) { return isDeferred(g, tables); });
+        if (deferred) {
+            group.forEach(function (g) { g.pending = true; });
             syncActions(tables);
         } else {
-            commit(f);
-            render();
+            group.forEach(commit);
+            render(true);
         }
     }
 
     function runAction(a, kind) {
-        coveredFilters(a, pageTables()).forEach(function (f) {
+        var mine = coveredFilters(a, pageTables());
+        // Mirrored copies follow (a copy may sit outside this element's tables).
+        mine.slice().forEach(function (f) {
+            mirrorsOf(f).forEach(function (g) { if (mine.indexOf(g) === -1) mine.push(g); });
+        });
+        mine.forEach(function (f) {
             if (kind === 'reset') f.impl.reset();
             commit(f);
         });
-        render();
+        render(true);
+    }
+
+    // Breakpoint change: a "Suchen" button that just disappeared must not
+    // keep changes pending — apply them; one that appeared takes over from
+    // the next change on.
+    function onResize() {
+        if (!L) return;
+        var tables = pageTables();
+        var any = false;
+        filters.forEach(function (f) {
+            if (f.pending && !isDeferred(f, tables)) {
+                mirrorsOf(f).forEach(commit);
+                any = true;
+            }
+        });
+        if (any) render(true);
+        else syncActions(tables);
+    }
+    var resizeTimer = 0;
+    window.addEventListener('resize', function () {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(onResize, 150);
+    });
+
+    // Hover styles only where the device really hovers (see filter-base.php
+    // button_controls()): data-immoadmin-hover on every buttons filter.
+    var hoverMQ = window.matchMedia ? window.matchMedia('(hover: hover)') : null;
+    function syncHover() {
+        var on = !hoverMQ || hoverMQ.matches;
+        each(document.querySelectorAll('[data-immoadmin-filter="buttons"]'), function (el) {
+            if (on) el.setAttribute('data-immoadmin-hover', '');
+            else el.removeAttribute('data-immoadmin-hover');
+        });
+    }
+    if (hoverMQ) {
+        if (typeof hoverMQ.addEventListener === 'function') hoverMQ.addEventListener('change', syncHover);
+        else if (typeof hoverMQ.addListener === 'function') hoverMQ.addListener(syncHover);
     }
 
     // ------------------------------------------------------------ init
@@ -514,13 +668,41 @@
         });
     }
 
+    function makeImpl(f) {
+        var onChange = function () { changed(f); };
+        f.impl = f.type === 'buttons' ? new ButtonsFilter(f.el, onChange) : new RangeFilter(f.el, onChange);
+        f.mirror = L.mirrorKey(f.type, f.impl.config, f.spec);
+    }
+
     function init() {
         L = L || window.ImmoAdminFilterLogic;
         if (!L) return; // filter-logic.js not there (yet) — the next trigger retries
+        var fresh = [];
         each(document.querySelectorAll('[data-immoadmin-filter]'), function (el) {
-            if (el._immoadminBound) return;
             var type = el.getAttribute('data-immoadmin-filter');
             if (type !== 'buttons' && type !== 'range' && type !== 'actions') return;
+            if (el._immoadminBound) {
+                // Already bound: the builder may have re-rendered it.
+                var known = null;
+                filters.forEach(function (x) { if (x.el === el) known = x; });
+                actions.forEach(function (x) { if (x.el === el) x.spec = specOf(el); });
+                if (known) {
+                    known.spec = specOf(el);
+                    if (known.impl.isStale && known.impl.isStale()) {
+                        if (known.impl.refresh) {
+                            known.impl.refresh(); // listener on the root survives
+                        } else {
+                            if (known.impl.destroy) known.impl.destroy();
+                            makeImpl(known);
+                        }
+                        known.mirror = L.mirrorKey(known.type, known.impl.config, known.spec);
+                        commit(known);
+                    } else {
+                        known.mirror = L.mirrorKey(known.type, known.impl.config, known.spec);
+                    }
+                }
+                return;
+            }
             el._immoadminBound = true;
             if (type === 'actions') {
                 var a = { el: el, spec: specOf(el) };
@@ -528,11 +710,10 @@
                 bindActions(a);
                 return;
             }
-            var f = { el: el, spec: specOf(el), pending: false, committed: null };
-            var onChange = function () { changed(f); };
-            f.impl = type === 'buttons' ? new ButtonsFilter(el, onChange) : new RangeFilter(el, onChange);
-            commit(f); // state on arrival (normally: nothing selected)
+            var f = { el: el, type: type, spec: specOf(el), pending: false, committed: null };
+            makeImpl(f);
             filters.push(f);
+            fresh.push(f);
         });
         // Drop elements Bricks removed (AJAX popups, builder re-render etc.).
         filters = filters.filter(function (f) {
@@ -541,6 +722,20 @@
             return false;
         });
         actions = actions.filter(function (a) { return document.contains(a.el); });
+        // A copy arriving later (popup, AJAX) takes over the state of the
+        // filter it mirrors, then everything commits its state on arrival.
+        fresh.forEach(function (f) {
+            if (!f.mirror) return;
+            for (var i = 0; i < filters.length; i++) {
+                var g = filters[i];
+                if (g !== f && g.mirror === f.mirror && fresh.indexOf(g) === -1 && g.impl.getState && f.impl.setState) {
+                    f.impl.setState(g.impl.getState());
+                    break;
+                }
+            }
+        });
+        fresh.forEach(commit); // state on arrival (normally: nothing selected)
+        syncHover();
         // Re-apply the committed state — also to rows Bricks just swapped in.
         render();
     }

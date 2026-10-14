@@ -244,6 +244,23 @@ class ImmoAdmin_Filter_Buttons extends ImmoAdmin_Filter_Element {
         return ImmoAdmin_Filter_Data::apply_custom_options($auto, $settings['custom_options'] ?? []);
     }
 
+    /**
+     * Has the designer styled "Button (Aktiv)"? Any stored optionActive*
+     * setting (incl. breakpoint / state variants) counts.
+     */
+    public static function has_active_style($settings) {
+        if (!is_array($settings)) {
+            return false;
+        }
+        foreach ($settings as $k => $v) {
+            if (is_string($k) && strpos($k, 'optionActive') === 0 && strpos($k, 'optionActiveSep') !== 0
+                && $v !== '' && $v !== null && $v !== array()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public function render() {
         $settings = $this->settings;
         $group = $this->prepare_root('buttons');
@@ -257,7 +274,8 @@ class ImmoAdmin_Filter_Buttons extends ImmoAdmin_Filter_Element {
         }
         $this->announce($f['field'] === '__custom' ? $f['key'] : '');
 
-        $rows    = ImmoAdmin_Filter_Data::rows($f['field'] === '__custom' ? [$f['key']] : []);
+        // Options from the units of the targeted tables' buildings only (v2.15.4).
+        $rows    = ImmoAdmin_Filter_Data::rows_for_filter($f['field'] === '__custom' ? [$f['key']] : [], $this->get_targets(), $group);
         $options = self::options_for($settings, $rows);
         if (empty($options)) {
             return $this->render_element_placeholder(['title' => esc_html__('Keine Werte gefunden – nach dem ersten Sync erscheinen hier die Optionen.', 'immoadmin')]);
@@ -273,9 +291,19 @@ class ImmoAdmin_Filter_Buttons extends ImmoAdmin_Filter_Element {
         $label    = isset($settings['label']) && is_string($settings['label']) ? trim($settings['label']) : '';
         $label_id = 'iaf-label-' . $this->id;
         $fields   = ImmoAdmin_Filter_Data::button_fields();
-        $aria     = $label !== ''
-            ? ' aria-labelledby="' . esc_attr($label_id) . '"'
-            : ' aria-label="' . esc_attr($f['field'] === '__custom' ? $f['key'] : wp_strip_all_tags($fields[$f['field']]['label'])) . '"';
+        // a11y (v2.15.4): the group (label + buttons) is the element root; the
+        // <ul> keeps its list semantics (role="group" on a <ul> dropped them).
+        $this->set_attribute('_root', 'role', 'group');
+        if ($label !== '') {
+            $this->set_attribute('_root', 'aria-labelledby', $label_id);
+        } else {
+            $this->set_attribute('_root', 'aria-label', $f['field'] === '__custom' ? $f['key'] : wp_strip_all_tags($fields[$f['field']]['label']));
+        }
+        if (!self::has_active_style($settings)) {
+            // No "Button (Aktiv)" styles → filters.css shows the built-in
+            // selected look, strong enough to beat the Normal/Hover styles.
+            $this->set_attribute('_root', 'class', 'immoadmin-filter--default-active');
+        }
 
         $preview_first = !empty($settings['builder_preview_active']) && ImmoAdmin_Filter_Data::is_builder();
         $btn_classes   = array_merge(['immoadmin-filter-option'], $this->button_preset_classes('option'));
@@ -284,7 +312,7 @@ class ImmoAdmin_Filter_Buttons extends ImmoAdmin_Filter_Element {
         if ($label !== '') {
             echo '<span class="immoadmin-filter-label" id="' . esc_attr($label_id) . '">' . esc_html($label) . '</span>';
         }
-        echo '<ul class="immoadmin-filter-options" role="group"' . $aria . '>';
+        echo '<ul class="immoadmin-filter-options">';
         foreach ($options as $i => $o) {
             $active  = $preview_first && $i === 0;
             $classes = $btn_classes;

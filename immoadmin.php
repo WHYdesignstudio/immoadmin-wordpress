@@ -3,7 +3,7 @@
  * Plugin Name: ImmoAdmin
  * Plugin URI: https://immoadmin.at
  * Description: Synchronisiert Immobilien-Daten von ImmoAdmin und stellt sie als Custom Post Types bereit.
- * Version: 2.15.3
+ * Version: 2.15.4
  * Author: WHY Agency
  * Author URI: https://why.dev
  * Text Domain: immoadmin
@@ -30,7 +30,7 @@ $immoadminUpdateChecker = PucFactory::buildUpdateChecker(
 $immoadminUpdateChecker->setBranch('main');
 
 // Plugin constants
-define('IMMOADMIN_VERSION', '2.15.3');
+define('IMMOADMIN_VERSION', '2.15.4');
 define('IMMOADMIN_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('IMMOADMIN_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('IMMOADMIN_DATA_DIR', WP_CONTENT_DIR . '/immoadmin/');
@@ -95,6 +95,16 @@ class ImmoAdmin {
         // Run version-based migrations on every load (handles updates without reactivation)
         add_action('admin_init', array($this, 'maybe_run_migrations'));
 
+        // Storage migration (private payload dir, .htaccess rules) also on
+        // the frontend: sites where nobody opens wp-admin must not keep
+        // serving the sync JSON. One autoloaded option read per request.
+        if (class_exists('ImmoAdmin_Sync')) {
+            add_action('init', array('ImmoAdmin_Sync', 'maybe_migrate_storage'), 5);
+            // FTP fallback: a full payload uploaded to the public path is
+            // replaced by its redacted copy on the next request (cheap stat check)
+            add_action('init', array('ImmoAdmin_Sync', 'maybe_secure_public_dir'), 6);
+        }
+
         // Background sync via WP Cron
         add_action('immoadmin_background_sync', array('ImmoAdmin_Sync', 'run_background'));
 
@@ -131,27 +141,25 @@ class ImmoAdmin {
      * Allow unauthenticated access to our REST endpoints.
      * Many security plugins block the REST API for non-logged-in users.
      * Our endpoints have their own token + HMAC authentication.
+     *
+     * Matches the parsed REST route (pretty permalinks and ?rest_route=),
+     * never a substring of the full REQUEST_URI — "?x=/wp-json/immoadmin/"
+     * on any other route must not lift the block.
      */
     public function allow_immoadmin_rest($result) {
-        if (!empty($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], '/wp-json/immoadmin/') !== false) {
+        if (class_exists('ImmoAdmin_Webhook') && ImmoAdmin_Webhook::is_own_route(ImmoAdmin_Webhook::current_rest_route())) {
             return true;
         }
         return $result;
     }
 
     public function activate() {
-        // Create data directories
-        if (!file_exists(IMMOADMIN_DATA_DIR)) {
-            wp_mkdir_p(IMMOADMIN_DATA_DIR);
+        // Directories, protection files (.htaccess for data / private
+        // payload / media dir) and migration of public payload JSON.
+        // Media stay publicly accessible - images/PDFs are used on the site.
+        if (ImmoAdmin_Sync::ensure_storage()) {
+            update_option('immoadmin_storage_version', ImmoAdmin_Sync::STORAGE_VERSION);
         }
-        if (!file_exists(IMMOADMIN_MEDIA_DIR)) {
-            wp_mkdir_p(IMMOADMIN_MEDIA_DIR);
-        }
-
-        // Protect data directory (JSON files) from direct web access
-        // Media directory is NOT protected - images/PDFs must be publicly accessible
-        self::protect_directory(IMMOADMIN_DATA_DIR);
-        self::unprotect_directory(IMMOADMIN_MEDIA_DIR);
 
         // Token is NOT auto-generated - user must enter it from ImmoAdmin
 
@@ -161,53 +169,24 @@ class ImmoAdmin {
     }
 
     /**
-     * Protect a directory - block directory listing but allow file access
-     * JSON files need to be readable (MapSVG etc.), media is in subdirectory with its own rules
-     */
-    private static function protect_directory($dir) {
-        // .htaccess: disable directory listing, allow file access
-        $htaccess = $dir . '.htaccess';
-        $rules = "Options -Indexes\n";
-        file_put_contents($htaccess, $rules, LOCK_EX);
-
-        // index.php as fallback (nginx, misconfigured Apache)
-        $index = $dir . 'index.php';
-        if (!file_exists($index)) {
-            file_put_contents($index, "<?php\n// Silence is golden.\n", LOCK_EX);
-        }
-    }
-
-    /**
-     * Ensure a directory is publicly accessible (clean up old restrictions)
-     */
-    private static function unprotect_directory($dir) {
-        $htaccess = $dir . '.htaccess';
-        if (file_exists($htaccess)) {
-            @unlink($htaccess);
-        }
-    }
-    
-    /**
      * Run migrations when plugin version changes (works on update without reactivation)
      */
     public function maybe_run_migrations() {
+        // Independent of the plugin version (see ImmoAdmin_Sync::STORAGE_VERSION)
+        if (class_exists('ImmoAdmin_Sync')) {
+            ImmoAdmin_Sync::maybe_migrate_storage();
+        }
+
         $stored_version = get_option('immoadmin_db_version', '0');
         if (version_compare($stored_version, IMMOADMIN_VERSION, '>=')) {
             return;
         }
 
-        // v2.0.5: Fix .htaccess - parent dir allows file access, media dir has no restrictions
-        if (version_compare($stored_version, '2.0.5', '<')) {
-            self::protect_directory(IMMOADMIN_DATA_DIR);
-            self::unprotect_directory(IMMOADMIN_MEDIA_DIR);
-        }
-
-        // Ensure directories exist
-        if (!file_exists(IMMOADMIN_DATA_DIR)) {
-            wp_mkdir_p(IMMOADMIN_DATA_DIR);
-        }
-        if (!file_exists(IMMOADMIN_MEDIA_DIR)) {
-            wp_mkdir_p(IMMOADMIN_MEDIA_DIR);
+        // Directories + protection files. Replaces the old v2.0.5 step that
+        // rewrote the data .htaccess to allow JSON access and deleted the
+        // media .htaccess.
+        if (class_exists('ImmoAdmin_Sync')) {
+            ImmoAdmin_Sync::ensure_storage();
         }
 
         update_option('immoadmin_db_version', IMMOADMIN_VERSION);
@@ -221,7 +200,7 @@ class ImmoAdmin {
             wp_send_json_error('Unauthorized');
         }
 
-        $status = get_option('immoadmin_sync_status', 'idle');
+        $status = ImmoAdmin_Sync::current_status();
         $progress = get_option('immoadmin_sync_progress', null);
         $last_result = get_option('immoadmin_last_sync_result', null);
         $last_stats = get_option('immoadmin_last_sync_stats', null);
@@ -236,6 +215,11 @@ class ImmoAdmin {
     }
 
     public function deactivate() {
+        if (function_exists('wp_unschedule_hook')) {
+            wp_unschedule_hook('immoadmin_background_sync');
+        } else {
+            wp_clear_scheduled_hook('immoadmin_background_sync');
+        }
         flush_rewrite_rules();
     }
 }

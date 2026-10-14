@@ -5,8 +5,9 @@
  * filter-range-baseline.json holds the output of these cases rendered with
  * v2.15.0 — before "Wert-Position" existed. Every case is a SAVED element
  * without the new `value_position` setting (Bricks only stores what the user
- * set), so the test demands byte-identical HTML: existing elements must keep
- * their left/right values without a single changed byte.
+ * set), so the test demanded byte-identical HTML. Since v2.15.4 an absent
+ * value_position means "follow"; the baseline now guards the explicit
+ * value_position = 'fixed' render (run-tests.php adds it to every case).
  *
  * Regenerate ONLY on purpose: php tests/run-tests.php --write-range-baseline
  */

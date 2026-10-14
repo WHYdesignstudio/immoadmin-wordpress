@@ -50,8 +50,23 @@ function sanitize_file_name($s) { return preg_replace('/[^A-Za-z0-9._-]/', '', (
 function content_url($p = '') { return 'https://wp.test/wp-content' . $p; }
 function wp_mkdir_p($d) { return @mkdir($d, 0777, true); }
 function wp_remote_get($url, $args = array()) { $GLOBALS['__remote_calls']++; return new WP_Error('http', 'offline in tests'); }
-function wp_insert_post($data, $err = false) { return $GLOBALS['__next_id']++; }
-function wp_update_post($data, $err = false) { return (int) $data['ID']; }
+// wp_safe_remote_get(): $GLOBALS['__http'] = callable($url, $args) → response array | WP_Error; default offline.
+$GLOBALS['__http'] = null;
+$GLOBALS['__http_args'] = array();
+function wp_safe_remote_get($url, $args = array()) {
+    $GLOBALS['__remote_calls']++;
+    $GLOBALS['__http_args'][] = array('url' => $url, 'args' => $args, 'external_filter' => array_key_exists('http_request_host_is_external', $GLOBALS['__active_filters']));
+    return is_callable($GLOBALS['__http']) ? call_user_func($GLOBALS['__http'], $url, $args) : new WP_Error('http', 'offline in tests');
+}
+function wp_remote_retrieve_response_code($r) { return is_array($r) ? (int) ($r['response']['code'] ?? 0) : ''; }
+function wp_remote_retrieve_header($r, $h) { return is_array($r) ? (string) ($r['headers'][strtolower($h)] ?? '') : ''; }
+function wp_remote_retrieve_body($r) { return is_array($r) ? (string) ($r['body'] ?? '') : ''; }
+// WP's slashing contract: insert/update functions unslash what they get.
+function wp_slash($v) { return is_array($v) ? array_map('wp_slash', $v) : (is_string($v) ? addslashes($v) : $v); }
+function wp_unslash($v) { return is_array($v) ? array_map('wp_unslash', $v) : (is_string($v) ? stripslashes($v) : $v); }
+$GLOBALS['__posts'] = array();
+function wp_insert_post($data, $err = false) { $id = $GLOBALS['__next_id']++; $GLOBALS['__posts'][$id] = wp_unslash($data); return $id; }
+function wp_update_post($data, $err = false) { $GLOBALS['__posts'][(int) $data['ID']] = wp_unslash($data); return (int) $data['ID']; }
 function get_post_meta($id, $key = '', $single = true) {
     if ($key === '') {
         // WP shape for "all meta of a post": key => array of values.
@@ -61,26 +76,43 @@ function get_post_meta($id, $key = '', $single = true) {
     }
     return isset($GLOBALS['__meta'][$id][$key]) ? $GLOBALS['__meta'][$id][$key] : '';
 }
-function update_post_meta($id, $key, $value) { $GLOBALS['__meta'][$id][$key] = $value; return true; }
+function update_post_meta($id, $key, $value) { $GLOBALS['__meta'][$id][$key] = wp_unslash($value); return true; }
 function delete_post_meta($id, $key) { unset($GLOBALS['__meta'][$id][$key]); return true; }
 
 class Fake_WPDB {
     public $postmeta = 'wp_postmeta';
     public $posts = 'wp_posts';
+    public $options = 'wp_options';
+    public $last_error = '';
+    public $col_result = array();   // get_col() answer (orphan media references)
+    public $var_result = 0;         // get_var() answer (unit count)
     private $last_args = array();
     public function prepare($sql, ...$args) { $this->last_args = $args; return $sql; }
     public function query($sql) {
-        // cleanup_dynamic_meta(): drop numbered media meta of that post
+        // acquire_lock(): INSERT IGNORE creates the option row only once
+        if (stripos($sql, 'INSERT IGNORE') !== false) {
+            $name = $this->last_args[0];
+            if (array_key_exists($name, $GLOBALS['__options'])) {
+                return 0;
+            }
+            $GLOBALS['__options'][$name] = $this->last_args[1];
+            return 1;
+        }
+        // cleanup_dynamic_meta(): drop numbered media / feature meta of that post
         if (stripos($sql, 'DELETE') !== false && isset($this->last_args[0])) {
             $id = (int) $this->last_args[0];
             foreach (array_keys($GLOBALS['__meta'][$id] ?? array()) as $k) {
-                if (preg_match('/^(image_\d+|floor_plan_\d+|document_\d+_(url|title))$/', $k)) {
+                if (preg_match('/^(image_\d+|floor_plan_\d+|document_\d+_(url|title)|feature_\d+_(key|label))$/', $k)) {
                     unset($GLOBALS['__meta'][$id][$k]);
                 }
             }
         }
         return 0;
     }
+    public $results = array();     // get_results() answer (existing posts)
+    public function get_results($sql, $output = null) { return $this->results; }
+    public function get_col($sql) { return $this->col_result; }
+    public function get_var($sql) { return $this->var_result; }
 }
 $GLOBALS['wpdb'] = new Fake_WPDB();
 
@@ -95,7 +127,17 @@ $GLOBALS['__filters']      = array();
 $GLOBALS['__post_types']   = array();
 $GLOBALS['__current_post'] = 0;
 $GLOBALS['__can_edit']     = false;
-function add_filter() { $GLOBALS['__filters'][] = func_get_args(); return true; }
+$GLOBALS['__active_filters'] = array();
+function add_filter() { $a = func_get_args(); $GLOBALS['__filters'][] = $a; $GLOBALS['__active_filters'][$a[0]][] = $a[1]; return true; }
+function remove_filter($tag, $cb) {
+    foreach ($GLOBALS['__active_filters'][$tag] ?? array() as $i => $f) { if ($f === $cb) { unset($GLOBALS['__active_filters'][$tag][$i]); } }
+    if (empty($GLOBALS['__active_filters'][$tag])) { unset($GLOBALS['__active_filters'][$tag]); }
+    return true;
+}
+function apply_filters($tag, $value, ...$args) {
+    foreach ($GLOBALS['__active_filters'][$tag] ?? array() as $f) { if (is_callable($f)) { $value = call_user_func_array($f, array_merge(array($value), $args)); } }
+    return $value;
+}
 function add_action() { return true; }
 function esc_html__($s, $d = null) { return $s; }
 function __($s, $d = null) { return $s; }
@@ -104,7 +146,15 @@ function esc_attr($s) { return htmlspecialchars((string) $s, ENT_QUOTES); }
 function esc_url($s) { return (string) $s; }
 function sanitize_html_class($c) { return preg_replace('/[^A-Za-z0-9_-]/', '', (string) $c); }
 function sanitize_key($k) { return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $k)); }
-function get_option($k, $d = false) { return $d; }
+$GLOBALS['__options'] = array();
+function get_option($k, $d = false) { return array_key_exists($k, $GLOBALS['__options']) ? $GLOBALS['__options'][$k] : $d; }
+function update_option($k, $v, $autoload = null) { $GLOBALS['__options'][$k] = $v; return true; }
+function delete_option($k) { unset($GLOBALS['__options'][$k]); return true; }
+function sanitize_textarea_field($s) { return trim(strip_tags((string) $s)); }
+function wp_generate_password($len = 12, $special = true, $extra = false) { return substr(str_repeat(md5((string) mt_rand()), 4), 0, $len); }
+function wp_cache_delete($k, $g = '') { return true; }
+function home_url($p = '') { return 'https://wp.test' . $p; }
+function rest_get_url_prefix() { return 'wp-json'; }
 function get_the_ID() { return $GLOBALS['__current_post']; }
 function get_post_type($id) { return $GLOBALS['__post_types'][(int) $id] ?? false; }
 function get_post($p = null) {
@@ -135,6 +185,7 @@ require __DIR__ . '/../includes/class-unit-fields.php';
 require __DIR__ . '/../includes/class-post-type.php';
 require __DIR__ . '/../includes/class-sync.php';
 require __DIR__ . '/../includes/class-visibility.php';
+require __DIR__ . '/../includes/class-webhook.php';
 require __DIR__ . '/stubs/bricks.php';
 require __DIR__ . '/../bricks/filter-data.php';
 require __DIR__ . '/../bricks/elements/units-table.php';
@@ -160,7 +211,7 @@ function section($name) { echo "\n{$name}\n"; }
 function sync_unit(array $unit, array $existing = array()) {
     $m = new ReflectionMethod('ImmoAdmin_Sync', 'sync_unit');
     if (PHP_VERSION_ID < 80100) { $m->setAccessible(true); }
-    return $m->invoke(null, $unit, $existing, 'https://api.immoadmin.test');
+    return $m->invoke(null, $unit, $existing, 'api.immoadmin.test');
 }
 
 // ---------------------------------------------------------------- tests
@@ -516,7 +567,7 @@ $walk = function ($el, $depth = 0) use (&$walk, &$names, &$problems, &$cond_ids,
         $problems[] = 'settings not a non-empty map: ' . $el['name'];
     }
     foreach ($el['settings']['_conditions'] ?? array() as $set) {
-        foreach ($set as $c) { $cond_ids[] = $c['id']; $dd[] = $c['dynamic_data']; if ($c['key'] !== 'dynamic_data' || $c['compare'] !== 'empty_not') { $problems[] = 'cond'; } }
+        foreach ($set as $c) { $cond_ids[] = $c['id']; $dd[] = $c['dynamic_data']; if ($c['key'] !== 'dynamic_data' || !in_array($c['compare'], array('empty_not', 'empty'), true)) { $problems[] = 'cond'; } }
     }
     if (!empty($el['settings']['hasLoop'])) { $loops[] = $el['settings']['query']['objectType'] ?? ''; }
     $dd[] = json_encode($el['settings']);
@@ -540,7 +591,7 @@ check('slider wraps exactly one loop slide', (function () use ($detail) {
     $slider = $detail['children'][1]['children'][0];
     return $slider['name'] === 'slider-nested' && count($slider['children']) === 1 && !empty($slider['children'][0]['settings']['hasLoop']);
 })(), true);
-check('slider hidden for units without plan', $detail['children'][1]['children'][0]['settings']['_conditions'][0][0]['dynamic_data'], '{cf_floor_plan_1}');
+check('slider only for units with a 2nd plan (v2.15.4)', $detail['children'][1]['children'][0]['settings']['_conditions'][0][0]['dynamic_data'], '{cf_floor_plan_2}');
 check('slider type slide (1 plan not cloned)', $detail['children'][1]['children'][0]['settings']['type'], 'slide');
 check('JSON round trip clean', json_decode(json_encode($detail), true), $detail);
 $inst = new ImmoAdmin_Units_Table(array('id' => 'tbl001', 'settings' => array()));
@@ -661,7 +712,7 @@ foreach (array('building_name', 'floor', 'floor_to', 'orientation', 'room_count'
     check("{$k} not sensitive", $FD::is_sensitive_key($k), false);
 }
 check('public statuses', array($FD::is_public_status('available'), $FD::is_public_status(''), $FD::is_public_status('reserved'), $FD::is_public_status('sold'), $FD::is_public_status('foo')),
-    array(true, true, false, false, false));
+    array(true, false, false, false, false)); // empty = unknown → fails closed (v2.15.4 security fix)
 
 section('filter data: row values');
 $meta_a = array('building_name' => ' Presto ', 'floor' => '-10', 'floor_to' => '0', 'orientation' => 'south', 'features' => '["west"]',
@@ -777,7 +828,7 @@ check('v2.15: Ziel-Tabellen help text explains the empty default', strpos($b->co
 check('v2.15: no builder → no options (frontend never scans for the dropdown)', $b->controls['filter_targets']['options'], array());
 check('field options include all fields', array_keys($b->controls['field']['options']), array('building_name', 'floor', 'orientation', 'room_count', '__custom'));
 check('style: Aktiv background maps to .brx-option-active', $b->controls['optionActiveBackground']['css'][0]['selector'], '.immoadmin-filter-option.brx-option-active');
-check('style: Hover typography maps to :hover', $b->controls['optionHoverTypography']['css'][0]['selector'], '.immoadmin-filter-option:hover');
+check('style: Hover typography maps to :hover (v2.15.4: never on a selected button, hover devices only)', $b->controls['optionHoverTypography']['css'][0]['selector'], '&[data-immoadmin-hover] .immoadmin-filter-option:not(.brx-option-active):hover');
 check('style: label typography', $b->controls['labelTypography']['css'][0]['selector'], '.immoadmin-filter-label');
 $html = $render($b);
 check('root data: type + group (sanitized)', array($attr($html, 'data-immoadmin-filter'), $attr($html, 'data-immoadmin-filter-group')), array('buttons', 'wohnungen'));
@@ -848,12 +899,12 @@ $rah = $render($ra);
 check('area labels "70 m²" … "154 m²"', strpos($rah, '>70 m²<') !== false && strpos($rah, '>154 m²<') !== false, true);
 check('no label → aria-label on group', strpos($rah, 'role="group" aria-label="Wohnfläche"') !== false, true);
 
-section('element: Filter-Bereich — saved elements without "Wert-Position" are byte-identical to v2.15.0');
+section('element: Filter-Bereich — explicit "Links/Rechts fest" is byte-identical to v2.15.0 (v2.15.4: absent = mitlaufend)');
 require_once __DIR__ . '/fixtures/filter-range-cases.php';
 $range_baseline_file = __DIR__ . '/fixtures/filter-range-baseline.json';
 $range_rendered = array();
 foreach (immoadmin_test_range_cases() as $case => $case_settings) {
-    $range_rendered[$case] = $render(new ImmoAdmin_Filter_Range(array('id' => 'frb' . count($range_rendered), 'settings' => $case_settings)));
+    $range_rendered[$case] = $render(new ImmoAdmin_Filter_Range(array('id' => 'frb' . count($range_rendered), 'settings' => $case_settings + array('value_position' => 'fixed'))));
 }
 if (in_array('--write-range-baseline', $argv ?? array(), true)) {
     file_put_contents($range_baseline_file, json_encode($range_rendered, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n");
@@ -868,7 +919,8 @@ check('sanity: baseline has fixed value-wrap', strpos($range_baseline['area-defa
 foreach (immoadmin_test_range_cases() as $case => $case_settings) {
     $fixed_html = $render(new ImmoAdmin_Filter_Range(array('id' => 'frx', 'settings' => $case_settings + array('value_position' => 'fixed'))));
     $legacy_html = $render(new ImmoAdmin_Filter_Range(array('id' => 'frx', 'settings' => $case_settings)));
-    check("{$case}: explicit 'fixed' = absent (legacy)", $fixed_html, $legacy_html);
+    check("{$case}: v2.15.4 absent → follow, differs from 'fixed' only in the value-wrap", array(strpos($legacy_html, 'data-value-position="follow"') !== false,
+        preg_replace('/<div class="value-wrap".*$/s', '', $legacy_html) === preg_replace('/<div class="value-wrap".*$/s', '', $fixed_html)), array(true, true));
 }
 
 section('element: Filter-Bereich — Wert-Position (v2.15.1)');
@@ -878,14 +930,14 @@ $vp = $rp->controls['value_position'];
 check('control: select in "Werte-Anzeige" with both modes (German labels)', array($vp['type'], $vp['group'], $vp['label'], $vp['options']), array('select', 'values', 'Wert-Position',
     array('follow' => 'Unter den Griffen (mitlaufend)', 'fixed' => 'Links/Rechts fest')));
 check('control: default "follow" (Bricks copies it into NEW elements on add)', $vp['default'], 'follow');
-check('control: placeholder shows the legacy state of saved elements, not clearable', array($vp['placeholder'], $vp['clearable']), array('Links/Rechts fest', false));
+check('control: placeholder shows what a saved element without the setting does (v2.15.4: mitlaufend), not clearable', array($vp['placeholder'], $vp['clearable']), array('Unter den Griffen (mitlaufend)', false));
 check('control: first in "Werte-Anzeige", before the typography', array_slice(array_keys(array_filter($rp->controls, function ($c) { return ($c['group'] ?? '') === 'values'; })), 0, 2), array('value_position', 'valueTypography'));
 check('spacing control unchanged (margin-top on .value-wrap, both modes)', $rp->controls['valueSpacing']['css'], array(array('property' => 'margin-top', 'selector' => '.value-wrap')));
 check('value typography still targets .value-wrap .value (moving labels too)', $rp->controls['valueTypography']['css'][0]['selector'], '.value-wrap .value');
-check('resolver: absent / empty / junk / fixed → fixed', array(
+check('resolver (v2.15.4): absent / empty / junk / null → follow, explicit fixed → fixed', array(
     ImmoAdmin_Filter_Range::value_position(array()), ImmoAdmin_Filter_Range::value_position(array('value_position' => '')),
     ImmoAdmin_Filter_Range::value_position(array('value_position' => 'evil')), ImmoAdmin_Filter_Range::value_position(array('value_position' => 'fixed')),
-    ImmoAdmin_Filter_Range::value_position(null)), array('fixed', 'fixed', 'fixed', 'fixed', 'fixed'));
+    ImmoAdmin_Filter_Range::value_position(null)), array('follow', 'follow', 'follow', 'fixed', 'follow'));
 check('resolver: follow', ImmoAdmin_Filter_Range::value_position(array('value_position' => 'follow')), 'follow');
 // A new element = settings as Bricks stores them on add: every control default.
 $new_settings = array();
@@ -896,7 +948,7 @@ check('new element (defaults copied on add) → follow', ImmoAdmin_Filter_Range:
 $fh = $render(new ImmoAdmin_Filter_Range(array('id' => 'frf', 'settings' => array('field' => 'living_area', 'value_position' => 'follow'))));
 check('follow: marked value-wrap, still aria-hidden', strpos($fh, '<div class="value-wrap" data-value-position="follow" aria-hidden="true"><span class="lower"><span class="value">70 m²</span></span><span class="upper"><span class="value">154 m²</span></span><span class="merged"><span class="value">70 m²</span><span class="value sep">–</span><span class="value">154 m²</span></span></div>') !== false, true);
 check('follow: inputs + aria unchanged', strpos($fh, 'aria-label="Wohnfläche Minimum" aria-valuetext="70 m²"') !== false && strpos($fh, 'aria-label="Wohnfläche Maximum" aria-valuetext="154 m²"') !== false, true);
-$fh_legacy = $render(new ImmoAdmin_Filter_Range(array('id' => 'frf', 'settings' => array('field' => 'living_area'))));
+$fh_legacy = $render(new ImmoAdmin_Filter_Range(array('id' => 'frf', 'settings' => array('field' => 'living_area', 'value_position' => 'fixed'))));
 check('follow differs from legacy ONLY in the value-wrap', preg_replace('/<div class="value-wrap".*$/s', '', $fh), preg_replace('/<div class="value-wrap".*$/s', '', $fh_legacy));
 $fvb = $render(new ImmoAdmin_Filter_Range(array('id' => 'frv', 'settings' => array('field' => 'living_area', 'value_position' => 'follow', 'labelMin' => 'von', 'labelMax' => 'bis <b>'))));
 check('follow: von/bis kept + escaped, merged uses "bis" as connector', strpos($fvb, '<span class="lower"><span class="label">von</span><span class="value">70 m²</span></span><span class="upper"><span class="label">bis &lt;b&gt;</span><span class="value">154 m²</span></span><span class="merged"><span class="label">von</span><span class="value">70 m²</span><span class="label">bis &lt;b&gt;</span><span class="value">154 m²</span></span>') !== false, true);
@@ -1424,8 +1476,8 @@ $hsh = immoadmin_test_render_table($hs, 'tb"l<x>1');
 // Legacy case: "Preis" (1) has no mobile_visible → still hidden ≤767 by the
 // static rule, so the phone band keeps only "Top" (0).
 check('id sanitised in the scope, nothing unescaped', array($styles($hsh), strpos($hsh, '<x>') === false), array(array(
-    '@media (max-width: 767px){' . $tbl('.brxe-tblx1') . '{grid-template-columns:max-content}' . $hide_sel('.brxe-tblx1', 2) . '{display:none !important}}'), true));
-check('horizontal scroll: style before the scroll wrapper, max-content tracks', preg_match('#^<div [^>]*><style>.*?</style><div class="immoadmin-table-scroll"#s', $hsh), 1);
+    '@media (max-width: 767px){' . $tbl('.brxe-tblx1') . '{grid-template-columns:auto}' . $hide_sel('.brxe-tblx1', 2) . '{display:none !important}}'), true));
+check('horizontal scroll: style before the scroll wrapper (tracks auto since v2.15.4)', preg_match('#^<div [^>]*><style>.*?</style><div class="immoadmin-table-scroll"#s', $hsh), 1);
 
 // Custom (mobile-first) breakpoints coming from Bricks itself.
 eval('namespace Bricks; class Breakpoints { public static $breakpoints = []; public static $is_mobile_first = true; }');
@@ -1450,10 +1502,22 @@ check('key valid only for the default set → ignored on a custom site (byte-ide
 \Bricks\Breakpoints::$breakpoints = array();
 check('empty Bricks list, before init → defaults', $UT::site_breakpoints(), $def);
 
-// cleanup temp dir
-@unlink(IMMOADMIN_MEDIA_DIR . 'abc123-plan.png');
-@rmdir(IMMOADMIN_MEDIA_DIR);
-@rmdir(IMMOADMIN_DATA_DIR);
+// units-table v2.15.4 fixes (own file, see there)
+require __DIR__ . '/units-table-tests.php';
+
+require __DIR__ . '/security-tests.php';
+
+require __DIR__ . '/filter-tests.php';
+
+// cleanup temp dir (incl. payload dir and dotfiles)
+$rm = function ($dir) use (&$rm) {
+    foreach (is_dir($dir) ? (scandir($dir) ?: array()) : array() as $e) {
+        if ($e === '.' || $e === '..') { continue; }
+        is_dir($dir . '/' . $e) ? $rm($dir . '/' . $e) : @unlink($dir . '/' . $e);
+    }
+    @rmdir($dir);
+};
+$rm(rtrim(IMMOADMIN_DATA_DIR, '/'));
 
 echo "\n{$GLOBALS['__count']} checks, {$GLOBALS['__fails']} failed\n";
 exit($GLOBALS['__fails'] > 0 ? 1 : 0);

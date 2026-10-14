@@ -24,19 +24,38 @@ class ImmoAdmin_Admin {
 
         // Handle token save (always process this first)
         if (isset($_POST['immoadmin_save_token']) && wp_verify_nonce($nonce, 'immoadmin_save_token')) {
-            $new_token = isset($_POST['immoadmin_token'])
-                ? trim(sanitize_text_field(wp_unslash($_POST['immoadmin_token'])))
+            // Trim only: the token is an HMAC key, sanitize_text_field()
+            // would silently alter it (percent sequences, "<", whitespace).
+            $new_token = isset($_POST['immoadmin_token']) && is_string($_POST['immoadmin_token'])
+                ? trim(wp_unslash($_POST['immoadmin_token']))
                 : '';
-            // Store hash of token, not the token itself (security)
-            $token_hash = hash('sha256', $new_token);
-            update_option('immoadmin_webhook_token_hash', $token_hash);
-            // Store masked version for display only
-            $masked = str_repeat('•', 32);
-            update_option('immoadmin_webhook_token_masked', $masked);
-            // Remove old plain text token if exists
-            delete_option('immoadmin_webhook_token');
-            $token_message = $new_token ? 'Token gespeichert! Verbindung hergestellt.' : 'Token entfernt!';
-            $token_success = !empty($new_token);
+
+            if ($new_token === '') {
+                // An empty token must never count as "connected".
+                $token_message = 'Bitte einen Token eingeben.';
+                $token_success = false;
+            } else {
+                // Store hash of token, not the token itself (security)
+                $token_hash = hash('sha256', $new_token);
+                $old_hash = (string) get_option('immoadmin_webhook_token_hash', '');
+                update_option('immoadmin_webhook_token_hash', $token_hash);
+                // Store masked version for display only
+                $masked = str_repeat('•', 32);
+                update_option('immoadmin_webhook_token_masked', $masked);
+                // Remove old plain text token if exists
+                delete_option('immoadmin_webhook_token');
+                // New token = new backend: verify again
+                if (!hash_equals($old_hash, $token_hash)) {
+                    self::reset_connection_verification();
+                }
+                // Every save re-pins the media host from the next signed
+                // webhook (also the documented way to follow a moved backend)
+                if (class_exists('ImmoAdmin_Sync')) {
+                    ImmoAdmin_Sync::reset_backend_host();
+                }
+                $token_message = 'Token gespeichert! Verbindung hergestellt.';
+                $token_success = true;
+            }
         }
 
         // Handle disconnect
@@ -45,6 +64,9 @@ class ImmoAdmin_Admin {
             delete_option('immoadmin_webhook_token_hash');
             delete_option('immoadmin_webhook_token_masked');
             self::reset_connection_verification();
+            if (class_exists('ImmoAdmin_Sync')) {
+                ImmoAdmin_Sync::reset_backend_host();
+            }
             // Show setup screen immediately after disconnect
             self::render_setup_screen('Verbindung getrennt.', false);
             return;
@@ -72,10 +94,7 @@ class ImmoAdmin_Admin {
             $cleanup_success = true;
 
             // Run re-sync in background
-            wp_clear_scheduled_hook('immoadmin_background_sync');
-            wp_schedule_single_event(time(), 'immoadmin_background_sync');
-            spawn_cron();
-            update_option('immoadmin_sync_status', 'running');
+            ImmoAdmin_Sync::schedule();
         }
 
         // Handle Bricks integration toggle save
@@ -90,12 +109,8 @@ class ImmoAdmin_Admin {
 
         // Handle manual sync (run in background so progress is tracked)
         if (isset($_POST['immoadmin_sync']) && wp_verify_nonce($nonce, 'immoadmin_sync')) {
-            wp_clear_scheduled_hook('immoadmin_background_sync');
-            wp_schedule_single_event(time(), 'immoadmin_background_sync');
-            spawn_cron();
-            update_option('immoadmin_sync_status', 'running');
-            $sync_message = 'Sync gestartet...';
-            $sync_success = true;
+            $sync_success = ImmoAdmin_Sync::schedule();
+            $sync_message = $sync_success ? 'Sync gestartet...' : 'Sync konnte nicht geplant werden (WP-Cron).';
         }
 
         $status = ImmoAdmin_Sync::get_status();

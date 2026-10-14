@@ -77,7 +77,7 @@ class ImmoAdmin_Filter_Actions extends ImmoAdmin_Filter_Element {
             'options'     => ['left' => esc_html__('Links', 'immoadmin'), 'right' => esc_html__('Rechts', 'immoadmin')],
             'inline'      => true,
             'placeholder' => esc_html__('Rechts', 'immoadmin'),
-            'required'    => ['submitIcon.icon', '!=', ''],
+            'required'    => ['submitIcon', '!=', ''],
         ];
         $this->controls = array_merge($this->controls, $this->icon_controls('submit', '.immoadmin-filter-submit'));
         $this->controls = array_merge($this->controls, $this->button_controls(
@@ -133,7 +133,7 @@ class ImmoAdmin_Filter_Actions extends ImmoAdmin_Filter_Element {
             'options'     => ['left' => esc_html__('Links', 'immoadmin'), 'right' => esc_html__('Rechts', 'immoadmin')],
             'inline'      => true,
             'placeholder' => esc_html__('Rechts', 'immoadmin'),
-            'required'    => ['resetIcon.icon', '!=', ''],
+            'required'    => ['resetIcon', '!=', ''],
         ];
         $this->controls = array_merge($this->controls, $this->icon_controls('reset', '.immoadmin-filter-reset'));
         $this->controls = array_merge($this->controls, $this->button_controls(
@@ -173,16 +173,21 @@ class ImmoAdmin_Filter_Actions extends ImmoAdmin_Filter_Element {
         ];
     }
 
+    /**
+     * Icon size / colour / gap. 'required' checks the whole icon setting,
+     * like Bricks' own Button element (v2.15.4): an SVG icon has no '.icon'
+     * key, so ['…Icon.icon', '!=', ''] hid these controls for SVGs.
+     */
     private function icon_controls($p, $sel) {
         return [
             $p . 'IconSize' => [
                 'group' => $p, 'label' => esc_html__('Icon-Größe', 'immoadmin'), 'type' => 'number', 'units' => true,
-                'required' => [$p . 'Icon.icon', '!=', ''],
+                'required' => [$p . 'Icon', '!=', ''],
                 'css' => [['property' => 'font-size', 'selector' => $sel . ' .icon']],
             ],
             $p . 'IconColor' => [
                 'group' => $p, 'label' => esc_html__('Icon-Farbe', 'immoadmin'), 'type' => 'color',
-                'required' => [$p . 'Icon.icon', '!=', ''],
+                'required' => [$p . 'Icon', '!=', ''],
                 'css' => [
                     ['property' => 'color', 'selector' => $sel . ' .icon'],
                     ['property' => 'fill', 'selector' => $sel . ' .icon'],
@@ -191,7 +196,7 @@ class ImmoAdmin_Filter_Actions extends ImmoAdmin_Filter_Element {
             $p . 'IconGap' => [
                 'group' => $p, 'label' => esc_html__('Abstand Icon – Text', 'immoadmin'), 'type' => 'number', 'units' => true,
                 'placeholder' => '0.5em',
-                'required' => [$p . 'Icon.icon', '!=', ''],
+                'required' => [$p . 'Icon', '!=', ''],
                 'css' => [['property' => 'gap', 'selector' => $sel]],
             ],
         ];

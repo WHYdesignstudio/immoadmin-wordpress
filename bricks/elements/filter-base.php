@@ -203,8 +203,14 @@ if (!class_exists('ImmoAdmin_Filter_Element')) {
                 'css' => [['property' => 'min-width', 'selector' => $sel]],
             ];
 
-            // Hover
-            $hover = $sel . ':hover';
+            // Hover. With an Aktiv state (filter options, v2.15.4) Hover never
+            // touches a selected button: Bricks prints element CSS in SETTINGS
+            // order, so a Hover rule saved after an Aktiv rule of the same
+            // specificity used to repaint the selected button. And it only applies
+            // where the device really hovers: filters.js sets data-immoadmin-hover
+            // on the root while (hover: hover) matches, so a tap on a phone no
+            // longer leaves a sticky hover look behind.
+            $hover = $active_sel ? '&[data-immoadmin-hover] ' . $sel . ':not(.brx-option-active):hover' : $sel . ':hover';
             $c[$p . 'HoverSep'] = ['group' => $group, 'type' => 'separator', 'label' => $title . ' (' . esc_html__('Hover', 'immoadmin') . ')'];
             $c[$p . 'HoverBackground'] = [
                 'group' => $group, 'label' => esc_html__('Hintergrundfarbe', 'immoadmin'), 'type' => 'color',
@@ -221,7 +227,10 @@ if (!class_exists('ImmoAdmin_Filter_Element')) {
 
             // Aktiv (selected) — after Hover so a selected button keeps its look on hover
             if ($active_sel) {
-                $c[$p . 'ActiveSep'] = ['group' => $group, 'type' => 'separator', 'label' => $title . ' (' . esc_html__('Aktiv', 'immoadmin') . ')'];
+                $c[$p . 'ActiveSep'] = [
+                    'group' => $group, 'type' => 'separator', 'label' => $title . ' (' . esc_html__('Aktiv', 'immoadmin') . ')',
+                    'description' => esc_html__('Leer = eingebauter Aktiv-Look (dunkler Hintergrund, weiße Schrift). Sobald hier etwas eingestellt ist, ersetzt es den eingebauten Look (nicht Eingestelltes kommt dann vom Normal-Zustand).', 'immoadmin'),
+                ];
                 $c[$p . 'ActiveBackground'] = [
                     'group' => $group, 'label' => esc_html__('Hintergrundfarbe', 'immoadmin'), 'type' => 'color',
                     'css' => [['property' => 'background-color', 'selector' => $active_sel]],
@@ -237,11 +246,6 @@ if (!class_exists('ImmoAdmin_Filter_Element')) {
             }
 
             return $c;
-        }
-
-        /** Builder-only data hint (values found in the synced units). */
-        protected static function data_hint_html($text) {
-            return '<span style="white-space:normal">' . esc_html($text) . '</span>';
         }
     }
 }
